@@ -1,0 +1,15 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+
+export async function middleware(req: NextRequest) {
+  if (await isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
+  if (req.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const url = req.nextUrl.clone();
+  url.pathname = "/login";
+  return NextResponse.redirect(url);
+}
+
+export const config = {
+  // Cron routes check CRON_SECRET themselves.
+  matcher: ["/((?!login|api/login|api/tick|api/cron|_next|favicon.ico).*)"],
+};

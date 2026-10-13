@@ -1,103 +1,120 @@
-import Image from "next/image";
+import { desc } from "drizzle-orm";
+import { Controls } from "@/components/Controls";
+import { EquityChart } from "@/components/EquityChart";
+import { Badge, Card, Stat, Table, pct, td, tone, usd } from "@/components/ui";
+import * as alpaca from "@/lib/alpaca";
+import { db, positions, runs } from "@/lib/db";
+import { getSettings } from "@/lib/settings";
+import { STRATEGY_BY_ID } from "@/lib/strategies";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Dashboard() {
+  const [settings, account, clock, live, ours, history, recentRuns] = await Promise.all([
+    getSettings(),
+    alpaca.getAccount(),
+    alpaca.getClock(),
+    alpaca.getPositions(),
+    db.select().from(positions),
+    alpaca.getPortfolioHistory("3M").catch(() => null),
+    db.select().from(runs).orderBy(desc(runs.startedAt)).limit(8),
+  ]);
+
+  const equity = Number(account.equity);
+  const lastEquity = Number(account.last_equity);
+  const dayPnl = equity - lastEquity;
+  const dayPnlPct = lastEquity ? (dayPnl / lastEquity) * 100 : 0;
+  const halted = dayPnlPct <= -settings.risk.dailyLossLimitPct;
+  const liveBySymbol = new Map(live.map((p) => [p.symbol, p]));
+  const unmanaged = live.filter((p) => !ours.some((o) => o.symbol === p.symbol));
+
+  const equityData =
+    history?.timestamp
+      .map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(5, 10), equity: history.equity[i] }))
+      .filter((p): p is { date: string; equity: number } => p.equity != null && p.equity > 0) ?? [];
+
+  const lastRun = recentRuns[0];
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat label="Equity" value={usd(equity)} sub={`Cash ${usd(Number(account.cash), 0)}`} />
+        <Stat label="Today" value={usd(dayPnl)} sub={pct(dayPnlPct)} tone={tone(dayPnl)} />
+        <Stat label="Bot positions" value={`${ours.length} / ${settings.risk.maxOpenPositions}`} sub={`${unmanaged.length} unmanaged`} />
+        <Stat
+          label="Status"
+          value={settings.killSwitch ? "Kill switch" : halted ? "Halted" : clock.is_open ? "Trading" : "Market closed"}
+          sub={lastRun ? `Last run ${lastRun.startedAt.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", month: "short", day: "numeric" })} ET` : "No runs yet"}
+          tone={settings.killSwitch || halted ? "bad" : undefined}
         />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+      <Card title="Controls">
+        <Controls killSwitch={settings.killSwitch} />
+      </Card>
+
+      <Card title="Equity (3 months)">
+        <EquityChart data={equityData} />
+      </Card>
+
+      <Card title="Bot positions">
+        <Table
+          head={["Symbol", "Strategy", "State", "Qty", "Entry", "Last", "P&L", "Stop / target"]}
+          empty={ours.length ? undefined : "No positions yet. Entries happen when a rule fires inside the entry window."}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          {ours.map((p) => {
+            const lp = liveBySymbol.get(p.symbol);
+            const last = lp ? Number(lp.current_price) : null;
+            const plPct = lp ? Number(lp.unrealized_plpc) * 100 : null;
+            return (
+              <tr key={p.symbol}>
+                <td className={`${td} font-medium`}>{p.symbol}</td>
+                <td className={td}>{STRATEGY_BY_ID[p.strategyId]?.name ?? p.strategyId}</td>
+                <td className={td}><Badge>{p.state}</Badge></td>
+                <td className={td}>{p.qty}</td>
+                <td className={td}>{p.entryPrice ? usd(p.entryPrice) : "–"}</td>
+                <td className={td}>{last ? usd(last) : "–"}</td>
+                <td className={`${td} ${plPct == null ? "" : plPct >= 0 ? "text-good" : "text-bad"}`}>
+                  {plPct == null ? "–" : `${pct(plPct)} (${usd(Number(lp!.unrealized_pl))})`}
+                </td>
+                <td className={`${td} text-ink-2`}>
+                  {p.stopPrice ? usd(p.stopPrice) : "–"} / {p.takeProfitPrice ? usd(p.takeProfitPrice) : "trail"}
+                </td>
+              </tr>
+            );
+          })}
+        </Table>
+        {unmanaged.length > 0 && (
+          <p className="mt-3 text-xs text-muted">
+            Also in the account but not managed by the bot: {unmanaged.map((p) => p.symbol).join(", ")}.
+          </p>
+        )}
+      </Card>
+
+      <Card title="Recent runs">
+        <Table head={["Started (ET)", "Trigger", "Status", "Summary"]} empty={recentRuns.length ? undefined : "No runs yet."}>
+          {recentRuns.map((r) => {
+            const s = (r.summary ?? {}) as { gate?: string; entries?: string[]; exits?: string[]; candidates?: number };
+            return (
+              <tr key={r.id}>
+                <td className={td}>{r.startedAt.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
+                <td className={td}>{r.trigger}</td>
+                <td className={td}><Badge>{r.status}</Badge></td>
+                <td className={`${td} text-ink-2`}>
+                  {r.error
+                    ? <span className="text-bad">{r.error.slice(0, 160)}</span>
+                    : [
+                        s.candidates != null && `${s.candidates} candidates`,
+                        s.gate && `gated: ${s.gate}`,
+                        s.entries?.length && `bought ${s.entries.join(", ")}`,
+                        s.exits?.length && `sold ${s.exits.join(", ")}`,
+                      ].filter(Boolean).join(" · ") || "–"}
+                </td>
+              </tr>
+            );
+          })}
+        </Table>
+      </Card>
     </div>
   );
 }

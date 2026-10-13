@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #e3e6eb;
+  --ink: #14171c;
+  --ink-2: #4a515c;
+  --muted: #7a828e;
+  --accent: #2f5bd8;
+  --good: #15803d;
+  --bad: #c2410c;
+  --warn: #a16207;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0d1014;
+    --panel: #151a20;
+    --border: #262d36;
+    --ink: #e8ebef;
+    --ink-2: #b3bac4;
+    --muted: #7f8893;
+    --accent: #7c9cff;
+    --good: #4ade80;
+    --bad: #fb923c;
+    --warn: #facc15;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-line: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-warn: var(--warn);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.num { font-variant-numeric: tabular-nums; }
+
+.prose-journal h1, .prose-journal h2, .prose-journal h3 { font-weight: 600; margin: 1rem 0 0.4rem; }
+.prose-journal p { margin: 0.4rem 0; }
+.prose-journal ul { list-style: disc; padding-left: 1.25rem; margin: 0.4rem 0; }
+.prose-journal strong { font-weight: 600; }
