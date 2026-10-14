@@ -10,15 +10,30 @@ import { STRATEGY_BY_ID } from "@/lib/strategies";
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
-  const [settings, account, clock, live, ours, history, recentRuns] = await Promise.all([
-    getSettings(),
-    alpaca.getAccount(),
-    alpaca.getClock(),
-    alpaca.getPositions(),
-    db.select().from(positions),
-    alpaca.getPortfolioHistory("3M").catch(() => null),
-    db.select().from(runs).orderBy(desc(runs.startedAt)).limit(8),
-  ]);
+  let data;
+  try {
+    data = await Promise.all([
+      getSettings(),
+      alpaca.getAccount(),
+      alpaca.getClock(),
+      alpaca.getPositions(),
+      db.select().from(positions),
+      alpaca.getPortfolioHistory("3M").catch(() => null),
+      db.select().from(runs).orderBy(desc(runs.startedAt)).limit(8),
+    ]);
+  } catch (err) {
+    const authFailed = err instanceof alpaca.AlpacaError && (err.status === 401 || err.status === 403);
+    return (
+      <Card title="Can't load the dashboard">
+        <p className="text-sm text-bad">
+          {authFailed
+            ? "Alpaca rejected the API keys. Check ALPACA_KEY_ID and ALPACA_SECRET_KEY (paper account keys)."
+            : String(err instanceof Error ? err.message : err).slice(0, 400)}
+        </p>
+      </Card>
+    );
+  }
+  const [settings, account, clock, live, ours, history, recentRuns] = data;
 
   const equity = Number(account.equity);
   const lastEquity = Number(account.last_equity);
