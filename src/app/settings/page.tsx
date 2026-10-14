@@ -3,7 +3,7 @@ import { getSettings } from "@/lib/settings";
 import { getUniverse } from "@/lib/universe";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // "Refresh now" recomputes the universe from ~7k symbols
+export const maxDuration = 300; // "Refresh now" recomputes the universe from ~12k symbols
 
 export default async function SettingsPage() {
   const [settings, u] = await Promise.all([getSettings(), getUniverse()]);

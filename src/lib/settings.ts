@@ -6,7 +6,8 @@ export type Settings = {
   watchlist: string[]; // pinned symbols, always scanned
   universe: {
     enabled: boolean; // also scan the auto-ranked most-active stocks
-    size: number;
+    size: number; // stocks
+    etfCount: number; // most-traded ETFs, excluding single-stock funds
     exchanges: string[];
     refreshDays: number;
   };
@@ -38,7 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
     "JPM", "BAC", "V", "MA", "UNH", "LLY", "JNJ", "XOM", "CVX",
     "COST", "WMT", "HD", "NFLX", "CRM",
   ],
-  universe: { enabled: true, size: 500, exchanges: ["NYSE", "NASDAQ"], refreshDays: 7 },
+  universe: { enabled: true, size: 500, etfCount: 50, exchanges: ["NYSE", "NASDAQ"], refreshDays: 7 },
   risk: {
     maxPositionPct: 5,
     maxOpenPositions: 10,

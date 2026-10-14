@@ -32,6 +32,30 @@ export async function fetchSectors(): Promise<Record<string, string>> {
   return out;
 }
 
+// ETF sector by name, ordered so the most specific exposure wins (e.g. "Emerging Markets Bond" -> Bonds).
+// Sector ETFs share the stock sectors so the per-sector cap counts SMH alongside NVDA.
+const ETF_RULES: [RegExp, string][] = [
+  [/\b(Bitcoin|Ethereum|Ether|Crypto|Solana)\b/i, "Crypto ETF"],
+  [/\b(Bonds?|Treasury|T-Bill|Muni|Municipal|Corporate|High Yield|Aggregate|MBS|Senior Loan|Ultra-Short|Tax-Exempt)\b/i, "Bonds ETF"],
+  [/\b(Gold|Silver|Copper|Platinum|Commodity|Commodities|Oil Fund)\b/i, "Commodities ETF"],
+  [/Emerging|Brazil|Korea|Taiwan|Japan|India|China|Europe|EAFE|Developed|International|ex US|ACWI|World/i, "International ETF"],
+  [/Semiconductor|Technology|Tech-|Software|Memory|Cybersecurity|Internet|Magnificent|Innovation|Genomic/i, "Technology"],
+  [/Financial|Bank/i, "Finance"],
+  [/Energy|Oil|Gas/i, "Energy"],
+  [/Health|Biotech|Pharma/i, "Health Care"],
+  [/Utilities/i, "Utilities"],
+  [/Real Estate|REIT/i, "Real Estate"],
+  [/Industrial|Jets|Aerospace|Defense|Transport/i, "Industrials"],
+  [/Materials|Miners|Metals/i, "Basic Materials"],
+  [/Staples/i, "Consumer Staples"],
+  [/Discretionary|Retail|Homebuild|Home Construction/i, "Consumer Discretionary"],
+  [/Communication/i, "Telecommunications"],
+];
+
+export function etfSector(name: string): string {
+  return ETF_RULES.find(([re]) => re.test(name))?.[1] ?? "Broad market ETF";
+}
+
 export function sectorOf(symbol: string, sectors: Record<string, string>): string {
   return sectors[symbol] ?? ETF_SECTORS[symbol] ?? UNCLASSIFIED;
 }

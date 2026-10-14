@@ -1,13 +1,41 @@
 import { eq } from "drizzle-orm";
 import { fetchDailyBars, getAssets } from "./alpaca";
 import { db, universe } from "./db";
-import { fetchSectors } from "./sectors";
+import { etfSector, fetchSectors } from "./sectors";
 import { getSettings, type Settings } from "./settings";
 
 const LOOKBACK_DAYS = 30; // trading days used for average dollar volume
 
 // Alpaca has no ETF flag, so funds are recognised by name. Pinned symbols can still include any ETF.
-const FUND_NAME = /\b(ETF|ETN|ETP)s?\b|Trust,? Series|\biShares\b|\bSPDR\b|ProShares|Direxion|Invesco QQQ|\bIndex Fund\b/i;
+export const FUND_NAME = /\b(ETF|ETN|ETP)s?\b|Trust,? Series|\biShares\b|\bSPDR\b|ProShares|Direxion|Invesco QQQ|\bIndex Fund\b/i;
+
+// Uppercase words in fund names that are also stock tickers but don't mean "this fund tracks one stock".
+const NOT_A_HOLDING = new Set([
+  "ETF", "ETN", "SPDR", "MSCI", "USD", "USA", "ESG", "REIT", "TIPS", "MBS", "ARK", "KBW", "CSI", "FTSE", "STAR",
+  "NEW", "QQQ", "SPY", "NYSE", "AI", "VIX", "ICE", "AMT", "FANG", "MLP",
+]);
+// Single-stock funds are leveraged, inverse or option-income products and say so in the name.
+const SINGLE_STOCK_PRODUCT = /\b(\d(\.\d+)?x|Daily|Bull|Bear|Option Income|Covered Call|WeeklyPay|YieldBoost|Target)\b/i;
+
+/** e.g. "Direxion Daily TSLA Bull 2X ETF", "YieldMax NVDA Option Income Strategy ETF". */
+function isSingleStockFund(name: string, stockTickers: Set<string>) {
+  if (!SINGLE_STOCK_PRODUCT.test(name)) return false;
+  return (name.match(/\b[A-Z]{2,5}\b/g) ?? []).some((t) => stockTickers.has(t) && !NOT_A_HOLDING.has(t));
+}
+
+type Ranked = { symbol: string; dollarVolume: number };
+
+function rankByDollarVolume(bars: Record<string, { c: number; v: number }[]>, symbols: string[], minPrice: number): Ranked[] {
+  return symbols
+    .map((symbol) => {
+      const recent = (bars[symbol] ?? []).slice(-LOOKBACK_DAYS);
+      const last = recent.at(-1);
+      if (recent.length < LOOKBACK_DAYS * 0.75 || !last || last.c < minPrice) return null;
+      return { symbol, dollarVolume: recent.reduce((sum, x) => sum + x.c * x.v, 0) / recent.length };
+    })
+    .filter((x): x is Ranked => x !== null)
+    .sort((a, b) => b.dollarVolume - a.dollarVolume);
+}
 
 /**
  * Rank every active, tradable common-ticker stock on the chosen exchanges by average daily dollar volume
@@ -15,28 +43,36 @@ const FUND_NAME = /\b(ETF|ETN|ETP)s?\b|Trust,? Series|\biShares\b|\bSPDR\b|ProSh
  * liquid names in roughly the same order.
  */
 export async function computeUniverse(settings: Settings) {
-  const { exchanges, size } = settings.universe;
-  const assets = (await getAssets()).filter(
-    // Plain tickers only: skips warrants, units, rights and preferreds (BRK.B-style dots, slashes, 5th-letter suffixes are rare enough to accept).
-    (a) => a.tradable && exchanges.includes(a.exchange) && /^[A-Z]{1,5}$/.test(a.symbol) && !FUND_NAME.test(a.name),
-  );
-  const start = new Date(Date.now() - LOOKBACK_DAYS * 1.6 * 86400_000).toISOString().slice(0, 10);
-  const bars = await fetchDailyBars(assets.map((a) => a.symbol), start);
+  const { exchanges, size, etfCount } = settings.universe;
+  // Plain tickers only: skips warrants, units, rights and preferreds.
+  const all = (await getAssets()).filter((a) => a.tradable && /^[A-Z]{1,5}$/.test(a.symbol));
+  const stocks = all.filter((a) => !FUND_NAME.test(a.name));
+  const stockTickers = new Set(stocks.map((a) => a.symbol));
+  const stockCandidates = stocks.filter((a) => exchanges.includes(a.exchange));
+  // ETFs list across exchanges (most on NYSE Arca and Cboe BZX), so no exchange filter here.
+  const funds = all.filter((a) => FUND_NAME.test(a.name));
+  const etfCandidates = funds.filter((a) => !isSingleStockFund(a.name, stockTickers));
 
-  const ranked = Object.entries(bars)
-    .map(([symbol, b]) => {
-      const recent = b.slice(-LOOKBACK_DAYS);
-      const last = recent.at(-1);
-      if (recent.length < LOOKBACK_DAYS * 0.75 || !last || last.c < settings.risk.minPrice) return null;
-      const dollarVolume = recent.reduce((sum, x) => sum + x.c * x.v, 0) / recent.length;
-      return { symbol, dollarVolume };
-    })
-    .filter((x): x is { symbol: string; dollarVolume: number } => x !== null)
-    .sort((a, b) => b.dollarVolume - a.dollarVolume);
+  const start = new Date(Date.now() - LOOKBACK_DAYS * 1.6 * 86400_000).toISOString().slice(0, 10);
+  const symbols = [...stockCandidates, ...(etfCount > 0 ? etfCandidates : [])].map((a) => a.symbol);
+  const bars = await fetchDailyBars(symbols, start);
+
+  const minPrice = settings.risk.minPrice;
+  const topStocks = rankByDollarVolume(bars, stockCandidates.map((a) => a.symbol), minPrice).slice(0, size);
+  const topEtfs = rankByDollarVolume(bars, etfCandidates.map((a) => a.symbol), minPrice).slice(0, etfCount);
+  const names = new Map(funds.map((a) => [a.symbol, a.name]));
 
   return {
-    symbols: ranked.slice(0, size).map((r) => r.symbol),
-    meta: { candidates: assets.length, ranked: ranked.length, exchanges, lookbackDays: LOOKBACK_DAYS },
+    symbols: [...topStocks, ...topEtfs].map((r) => r.symbol),
+    etfSectors: Object.fromEntries(topEtfs.map((r) => [r.symbol, etfSector(names.get(r.symbol) ?? "")])),
+    meta: {
+      candidates: stockCandidates.length,
+      ranked: topStocks.length,
+      exchanges,
+      lookbackDays: LOOKBACK_DAYS,
+      etfs: topEtfs.map((r) => r.symbol),
+      singleStockFundsExcluded: funds.length - etfCandidates.length,
+    },
   };
 }
 
@@ -46,7 +82,7 @@ export async function refreshUniverse(opts: { force?: boolean } = {}) {
   const ageDays = current ? (Date.now() - current.computedAt.getTime()) / 86400_000 : Infinity;
   if (!opts.force && ageDays < settings.universe.refreshDays) return { refreshed: false, count: current!.symbols.length };
 
-  const [{ symbols, meta }, allSectors] = await Promise.all([
+  const [{ symbols, etfSectors, meta }, allSectors] = await Promise.all([
     computeUniverse(settings),
     fetchSectors().catch((err) => {
       console.error("sector fetch failed, keeping previous map:", err);
@@ -56,7 +92,7 @@ export async function refreshUniverse(opts: { force?: boolean } = {}) {
   // Keep only what we scan so the row stays small; fall back to the last good map.
   const sectors: Record<string, string> = {};
   for (const sym of [...settings.watchlist, ...symbols]) {
-    const sector = allSectors?.[sym] ?? current?.sectors?.[sym];
+    const sector = etfSectors[sym] ?? allSectors?.[sym] ?? current?.sectors?.[sym];
     if (sector) sectors[sym] = sector;
   }
   await db

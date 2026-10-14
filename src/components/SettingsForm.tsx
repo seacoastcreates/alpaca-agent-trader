@@ -41,10 +41,11 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
       <section className="rounded-lg border border-line bg-panel p-4">
         <h2 className="text-sm font-semibold">Most-active universe</h2>
         <p className="mt-1 text-xs text-muted">
-          The top stocks by average daily dollar volume over the last 30 trading days, recomputed automatically
+          The top stocks and ETFs by average daily dollar volume over the last 30 trading days (single-stock ETFs
+          excluded), recomputed automatically
           before the open when the list is older than the refresh interval.
         </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={s.universe.enabled}
               onChange={(e) => setS({ ...s, universe: { ...s.universe, enabled: e.target.checked } })} />
@@ -56,7 +57,12 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
               onChange={(e) => setS({ ...s, universe: { ...s.universe, size: Number(e.target.value) } })} />
           </label>
           <label className="text-sm">
-            <span className="text-xs text-muted">Exchanges</span>
+            <span className="text-xs text-muted">Number of ETFs</span>
+            <input type="number" className={input} value={s.universe.etfCount}
+              onChange={(e) => setS({ ...s, universe: { ...s.universe, etfCount: Number(e.target.value) } })} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-muted">Stock exchanges</span>
             <span className="mt-1 flex gap-3 py-1.5">
               {["NYSE", "NASDAQ"].map((x) => (
                 <span key={x} className="flex items-center gap-1.5">
@@ -85,7 +91,7 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
               const r = await refreshUniverseNow();
               setUMsg(r.ok ? `Ranked ${r.count} stocks` : r.error);
             })}>
-            {refreshing ? "Ranking ~7,000 stocks…" : "Refresh now"}
+            {refreshing ? "Ranking ~12,000 listings…" : "Refresh now"}
           </button>
           {uMsg && <span className="text-muted">{uMsg}</span>}
         </div>

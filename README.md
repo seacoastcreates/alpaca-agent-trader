@@ -6,8 +6,9 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
   - *Trend + pullback*: above 50-day SMA, RSI(14) < 35. +6% target / -3% stop / 10-day max hold / exit below trend.
   - *RSI-2 mean reversion*: above 200-day SMA, RSI(2) < 10. Exit above 5-day SMA / 7-day max / -5% stop.
   - *Momentum breakout*: new 20-day high on 1.5x projected volume. 8% trailing stop / -7% hard stop / 30-day max.
-- **Universe**: the top 500 NYSE + NASDAQ stocks by 30-day average dollar volume (funds excluded by name),
-  re-ranked weekly before the open, plus a pinned list (sector ETFs by default) that is always scanned.
+- **Universe**: the top 500 NYSE + NASDAQ stocks and the top 50 ETFs by 30-day average dollar volume,
+  re-ranked weekly before the open, plus a pinned list that is always scanned. Single-stock ETFs (e.g.
+  "Daily TSLA Bull 2X") are excluded: a stock ticker in the name plus a leveraged/inverse/income cue.
   Completed daily bars are cached in memory per day, so each 1-minute tick only fetches snapshots.
 - **Risk rules** (global, Claude can't override): position size % of equity, max open positions, max per strategy,
   max per sector (Nasdaq screener sectors, stored with the universe; pinned ETFs mapped by hand),

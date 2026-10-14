@@ -77,6 +77,7 @@ const SettingsSchema = z.object({
   universe: z.object({
     enabled: z.boolean(),
     size: z.number().int().min(10).max(1000),
+    etfCount: z.number().int().min(0).max(200),
     exchanges: z.array(z.enum(["NYSE", "NASDAQ", "ARCA", "AMEX", "BATS"])).min(1),
     refreshDays: z.number().int().min(1).max(90),
   }),

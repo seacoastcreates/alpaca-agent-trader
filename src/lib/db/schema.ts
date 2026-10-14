@@ -98,6 +98,9 @@ export const universe = pgTable("universe", {
   id: integer("id").primaryKey().default(1),
   symbols: jsonb("symbols").$type<string[]>().notNull(),
   sectors: jsonb("sectors").$type<Record<string, string>>().notNull().default({}),
-  meta: jsonb("meta").$type<{ candidates: number; ranked: number; exchanges: string[]; lookbackDays: number }>().notNull(),
+  meta: jsonb("meta").$type<{
+    candidates: number; ranked: number; exchanges: string[]; lookbackDays: number;
+    etfs?: string[]; singleStockFundsExcluded?: number;
+  }>().notNull(),
   computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
 });
