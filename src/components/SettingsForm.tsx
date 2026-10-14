@@ -19,7 +19,7 @@ const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
   ["entryEndET", "Entry window end (ET)", "time"],
 ];
 
-type UniverseStatus = { count: number; computedAt: string; preview: string[] } | null;
+type UniverseStatus = { count: number; etfs: number; computedAt: string; preview: string[] } | null;
 
 export function SettingsForm({ initial, universe }: { initial: Settings; universe: UniverseStatus }) {
   const [s, setS] = useState(initial);
@@ -83,7 +83,7 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           <span className="text-ink-2">
             {universe
-              ? `${universe.count} stocks, ranked ${new Date(universe.computedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+              ? `${universe.count - universe.etfs} stocks + ${universe.etfs} ETFs, ranked ${new Date(universe.computedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
               : "Not computed yet"}
           </span>
           <button className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-ink/5 disabled:opacity-50" disabled={refreshing}

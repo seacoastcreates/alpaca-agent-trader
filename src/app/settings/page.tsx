@@ -12,7 +12,7 @@ export default async function SettingsPage() {
       <h1 className="text-lg font-semibold">Settings</h1>
       <SettingsForm
         initial={settings}
-        universe={u ? { count: u.symbols.length, computedAt: u.computedAt.toISOString(), preview: u.symbols.slice(0, 60) } : null}
+        universe={u ? { count: u.symbols.length, etfs: u.meta.etfs?.length ?? 0, computedAt: u.computedAt.toISOString(), preview: u.symbols.slice(0, 60) } : null}
       />
     </div>
   );
