@@ -10,6 +10,7 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
   re-ranked weekly before the open, plus a pinned list (sector ETFs by default) that is always scanned.
   Completed daily bars are cached in memory per day, so each 1-minute tick only fetches snapshots.
 - **Risk rules** (global, Claude can't override): position size % of equity, max open positions, max per strategy,
+  max per sector (Nasdaq screener sectors, stored with the universe; pinned ETFs mapped by hand),
   max new entries per day, daily loss halt, min price, re-entry cooldown, entry time window, kill switch.
 - **Claude reviewer** (Haiku 5.5 by default): every new entry candidate gets one review per day against recent
   headlines and price action. In *veto* mode it can block a trade; in *advisory* mode it only records an opinion.

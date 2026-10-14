@@ -6,6 +6,7 @@ import { round, type Bar } from "./indicators";
 import { getSettings } from "./settings";
 import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strategies";
 import { etDay, etMinutes, hhmmToMinutes } from "./time";
+import { sectorOf } from "./sectors";
 import { scanList } from "./universe";
 
 // Each review takes a few seconds; leave the rest for the next tick so a run stays well under the time limit.
@@ -214,7 +215,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
   const [ours, live] = await Promise.all([db.select().from(positions), alpaca.getPositions()]);
   const liveSymbols = new Set(live.map((p) => p.symbol));
-  const scan = await scanList(settings);
+  const { symbols: scan, sectors } = await scanList(settings);
   const symbols = [...new Set([...scan, ...ours.map((p) => p.symbol)])];
   const barsBySymbol = await alpaca.getDailyBars(symbols);
   const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
@@ -306,6 +307,11 @@ async function runTick(result: TickResult, dryRun: boolean) {
   let openCount = ours.length;
   const perStrategy = new Map<string, number>();
   for (const p of ours) perStrategy.set(p.strategyId, (perStrategy.get(p.strategyId) ?? 0) + 1);
+  const perSector = new Map<string, number>();
+  for (const p of ours) {
+    const sec = p.sector ?? sectorOf(p.symbol, sectors);
+    perSector.set(sec, (perSector.get(sec) ?? 0) + 1);
+  }
   let entriesToday = todaySignals.filter((s) => s.status === "ordered").length;
   let reviewsToday = todaySignals.filter((s) => s.review).length;
   let reviewsThisTick = 0;
@@ -324,6 +330,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
   for (const c of candidates) {
     const sid = c.strat.def.id;
+    const sector = sectorOf(c.symbol, sectors);
     const decided = todaySignals.find(
       (s) => s.symbol === c.symbol && s.strategyId === sid && ["ordered", "vetoed", "error"].includes(s.status),
     );
@@ -334,6 +341,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       (recentlyClosed.has(c.symbol) ? "cooldown" : null) ??
       (openCount >= settings.risk.maxOpenPositions ? "max_open_positions" : null) ??
       ((perStrategy.get(sid) ?? 0) >= settings.risk.maxPositionsPerStrategy ? "max_positions_per_strategy" : null) ??
+      ((perSector.get(sector) ?? 0) >= settings.risk.maxPositionsPerSector ? `max_positions_per_sector (${sector})` : null) ??
       (entriesToday >= settings.risk.maxNewEntriesPerDay ? "max_entries_per_day" : null);
     if (block) {
       await record(c, "blocked", block);
@@ -390,7 +398,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
     const claimed = await db
       .insert(positions)
       .values({
-        symbol: c.symbol, strategyId: sid, state: "pending", qty, entryOrderId: "pending",
+        symbol: c.symbol, strategyId: sid, sector, state: "pending", qty, entryOrderId: "pending",
         stopPrice: round(legs.stopPrice), takeProfitPrice: legs.takeProfitPrice ? round(legs.takeProfitPrice) : null,
       })
       .onConflictDoNothing()
@@ -411,6 +419,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       openCount++;
       entriesToday++;
       perStrategy.set(sid, (perStrategy.get(sid) ?? 0) + 1);
+      perSector.set(sector, (perSector.get(sector) ?? 0) + 1);
     } catch (err) {
       await db.delete(positions).where(eq(positions.symbol, c.symbol));
       await record(c, "error", String(err).slice(0, 500), review);

@@ -84,7 +84,10 @@ export default async function Dashboard() {
             return (
               <tr key={p.symbol}>
                 <td className={`${td} font-medium`}>{p.symbol}</td>
-                <td className={td}>{STRATEGY_BY_ID[p.strategyId]?.name ?? p.strategyId}</td>
+                <td className={td}>
+                  {STRATEGY_BY_ID[p.strategyId]?.name ?? p.strategyId}
+                  {p.sector && <div className="text-xs text-muted">{p.sector}</div>}
+                </td>
                 <td className={td}><Badge>{p.state}</Badge></td>
                 <td className={td}>{p.qty}</td>
                 <td className={td}>{p.entryPrice ? usd(p.entryPrice) : "–"}</td>

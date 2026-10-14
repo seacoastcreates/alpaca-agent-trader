@@ -14,6 +14,7 @@ export type Settings = {
     maxPositionPct: number; // % of equity per new position
     maxOpenPositions: number;
     maxPositionsPerStrategy: number;
+    maxPositionsPerSector: number;
     maxNewEntriesPerDay: number;
     dailyLossLimitPct: number; // halt entries once the day is down this much
     minPrice: number;
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxPositionPct: 5,
     maxOpenPositions: 10,
     maxPositionsPerStrategy: 4,
+    maxPositionsPerSector: 3,
     maxNewEntriesPerDay: 6,
     dailyLossLimitPct: 2,
     minPrice: 5,

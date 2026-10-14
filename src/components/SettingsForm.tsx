@@ -10,6 +10,7 @@ const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
   ["maxPositionPct", "Position size (% of equity)", "number"],
   ["maxOpenPositions", "Max open positions", "number"],
   ["maxPositionsPerStrategy", "Max positions per strategy", "number"],
+  ["maxPositionsPerSector", "Max positions per sector", "number"],
   ["maxNewEntriesPerDay", "Max new entries per day", "number"],
   ["dailyLossLimitPct", "Halt entries when day is down (%)", "number"],
   ["minPrice", "Minimum share price ($)", "number"],

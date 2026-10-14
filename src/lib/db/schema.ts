@@ -61,6 +61,7 @@ export const signals = pgTable(
 export const positions = pgTable("positions", {
   symbol: text("symbol").primaryKey(),
   strategyId: text("strategy_id").notNull(),
+  sector: text("sector"),
   state: text("state").notNull(), // pending | open | closing
   qty: doublePrecision("qty").notNull(),
   entryOrderId: text("entry_order_id").notNull(),
@@ -96,6 +97,7 @@ export const journal = pgTable("journal", {
 export const universe = pgTable("universe", {
   id: integer("id").primaryKey().default(1),
   symbols: jsonb("symbols").$type<string[]>().notNull(),
+  sectors: jsonb("sectors").$type<Record<string, string>>().notNull().default({}),
   meta: jsonb("meta").$type<{ candidates: number; ranked: number; exchanges: string[]; lookbackDays: number }>().notNull(),
   computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
 });

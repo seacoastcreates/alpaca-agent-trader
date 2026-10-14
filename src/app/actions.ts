@@ -84,6 +84,7 @@ const SettingsSchema = z.object({
     maxPositionPct: z.number().min(0.1).max(25),
     maxOpenPositions: z.number().int().min(1).max(50),
     maxPositionsPerStrategy: z.number().int().min(1).max(50),
+    maxPositionsPerSector: z.number().int().min(1).max(50),
     maxNewEntriesPerDay: z.number().int().min(0).max(50),
     dailyLossLimitPct: z.number().min(0.1).max(20),
     minPrice: z.number().min(0).max(1000),
