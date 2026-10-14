@@ -18,7 +18,7 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
 ## Architecture
 
 ```
-Vercel Cron (hourly, 14-21 UTC weekdays) ──► /api/tick ───┐
+Netlify scheduled fn (every minute, 13:00-20:59 UTC weekdays) ──► /api/tick ──┐
 Vercel Cron (daily 22:15 UTC)            ──► /api/cron/journal
                                                            ▼
 Next.js on Vercel ── engine: sync fills → exits → candidates → risk rules → Claude review → orders
@@ -26,14 +26,13 @@ Next.js on Vercel ── engine: sync fills → exits → candidates → risk ru
    Neon Postgres         Alpaca paper API + market data (IEX feed)           Anthropic API
 ```
 
-Vercel's Hobby plan only allows each cron job to run once a day, so `vercel.json` defines eight daily jobs, one per
-market hour. Hobby timing is loose (a job fires somewhere inside its scheduled hour), so expect roughly hourly
-ticks. That's fine for daily-bar strategies, and stops live at Alpaca as real orders between ticks.
-For tighter timing, upgrade to Vercel Pro or point any external scheduler at `/api/tick` (see below).
+Vercel's Hobby plan only allows daily crons, so the per-minute tick comes from a tiny Netlify scheduled function in
+`pinger/` (site `rulebook-trader-pinger`). Vercel Cron only runs the daily journal.
 
 | Piece | Cost |
 |---|---|
 | Vercel Hobby | $0 |
+| Netlify (pinger) | $0 |
 | Neon free tier | $0 |
 | Claude Haiku 5.5 reviews + journal | ~$0.01-0.03 / day |
 
@@ -51,9 +50,9 @@ For tighter timing, upgrade to Vercel Pro or point any external scheduler at `/a
    ```
    With `APP_PASSWORD` empty the dashboard is open locally; in production it is locked unless set.
 3. **Vercel**: import the GitHub repo, add every variable from `.env.example`, deploy.
-   The crons in `vercel.json` register automatically and Vercel sends `CRON_SECRET` as a Bearer token.
-4. *(Optional)* **Faster ticks**: any external scheduler can call `https://<your-app>.vercel.app/api/tick`
-   with the header `Authorization: Bearer <CRON_SECRET>`. Ticks outside market hours just sync fills and exit.
+   The journal cron in `vercel.json` registers automatically and Vercel sends `CRON_SECRET` as a Bearer token.
+4. **Pinger**: on the Netlify site, set `TICK_URL=https://<your-app>.vercel.app/api/tick` and the same `CRON_SECRET`
+   (scope: Functions), then redeploy. See `pinger/README.md`.
 
 ## Where things live
 
