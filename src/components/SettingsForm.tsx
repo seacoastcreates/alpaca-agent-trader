@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { saveSettingsAction } from "@/app/actions";
+import { refreshUniverseNow, saveSettingsAction } from "@/app/actions";
 import type { Settings } from "@/lib/settings";
 
 const input = "num mt-1 block w-full rounded-md border border-line bg-bg px-2 py-1.5 text-sm";
@@ -18,11 +18,15 @@ const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
   ["entryEndET", "Entry window end (ET)", "time"],
 ];
 
-export function SettingsForm({ initial }: { initial: Settings }) {
+type UniverseStatus = { count: number; computedAt: string; preview: string[] } | null;
+
+export function SettingsForm({ initial, universe }: { initial: Settings; universe: UniverseStatus }) {
   const [s, setS] = useState(initial);
   const [watchlist, setWatchlist] = useState(initial.watchlist.join(", "));
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [uMsg, setUMsg] = useState<string | null>(null);
+  const [refreshing, startRefresh] = useTransition();
 
   const save = () =>
     start(async () => {
@@ -34,8 +38,67 @@ export function SettingsForm({ initial }: { initial: Settings }) {
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-line bg-panel p-4">
-        <h2 className="text-sm font-semibold">Watchlist</h2>
-        <p className="mt-1 text-xs text-muted">Symbols the strategies scan. Comma or space separated.</p>
+        <h2 className="text-sm font-semibold">Most-active universe</h2>
+        <p className="mt-1 text-xs text-muted">
+          The top stocks by average daily dollar volume over the last 30 trading days, recomputed automatically
+          before the open when the list is older than the refresh interval.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={s.universe.enabled}
+              onChange={(e) => setS({ ...s, universe: { ...s.universe, enabled: e.target.checked } })} />
+            Scan the universe
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-muted">Number of stocks</span>
+            <input type="number" className={input} value={s.universe.size}
+              onChange={(e) => setS({ ...s, universe: { ...s.universe, size: Number(e.target.value) } })} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-muted">Exchanges</span>
+            <span className="mt-1 flex gap-3 py-1.5">
+              {["NYSE", "NASDAQ"].map((x) => (
+                <span key={x} className="flex items-center gap-1.5">
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={s.universe.exchanges.includes(x)}
+                    onChange={(e) => setS({ ...s, universe: { ...s.universe, exchanges: e.target.checked
+                      ? [...s.universe.exchanges, x] : s.universe.exchanges.filter((y) => y !== x) } })} />
+                  {x}
+                </span>
+              ))}
+            </span>
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-muted">Refresh every (days)</span>
+            <input type="number" className={input} value={s.universe.refreshDays}
+              onChange={(e) => setS({ ...s, universe: { ...s.universe, refreshDays: Number(e.target.value) } })} />
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-ink-2">
+            {universe
+              ? `${universe.count} stocks, ranked ${new Date(universe.computedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+              : "Not computed yet"}
+          </span>
+          <button className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-ink/5 disabled:opacity-50" disabled={refreshing}
+            onClick={() => startRefresh(async () => {
+              const r = await refreshUniverseNow();
+              setUMsg(r.ok ? `Ranked ${r.count} stocks` : r.error);
+            })}>
+            {refreshing ? "Ranking ~7,000 stocks…" : "Refresh now"}
+          </button>
+          {uMsg && <span className="text-muted">{uMsg}</span>}
+        </div>
+        <p className="mt-1 text-xs text-muted">Save settings first if you changed the size or exchanges.</p>
+        {universe && (
+          <p className="mt-2 font-mono text-xs leading-relaxed text-muted">
+            {universe.preview.join(" ")}{universe.count > universe.preview.length ? ` … +${universe.count - universe.preview.length} more` : ""}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-line bg-panel p-4">
+        <h2 className="text-sm font-semibold">Pinned symbols</h2>
+        <p className="mt-1 text-xs text-muted">Always scanned, in addition to the universe. Comma or space separated.</p>
         <textarea className={`${input} mt-2 h-24 font-mono`} value={watchlist} onChange={(e) => setWatchlist(e.target.value)} />
       </section>
 

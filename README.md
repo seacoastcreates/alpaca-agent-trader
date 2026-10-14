@@ -6,6 +6,9 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
   - *Trend + pullback*: above 50-day SMA, RSI(14) < 35. +6% target / -3% stop / 10-day max hold / exit below trend.
   - *RSI-2 mean reversion*: above 200-day SMA, RSI(2) < 10. Exit above 5-day SMA / 7-day max / -5% stop.
   - *Momentum breakout*: new 20-day high on 1.5x projected volume. 8% trailing stop / -7% hard stop / 30-day max.
+- **Universe**: the top 500 NYSE + NASDAQ stocks by 30-day average dollar volume (funds excluded by name),
+  re-ranked weekly before the open, plus a pinned list (sector ETFs by default) that is always scanned.
+  Completed daily bars are cached in memory per day, so each 1-minute tick only fetches snapshots.
 - **Risk rules** (global, Claude can't override): position size % of equity, max open positions, max per strategy,
   max new entries per day, daily loss halt, min price, re-entry cooldown, entry time window, kill switch.
 - **Claude reviewer** (Haiku 5.5 by default): every new entry candidate gets one review per day against recent
@@ -19,6 +22,7 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
 
 ```
 Netlify scheduled fn (every minute, 13:00-20:59 UTC weekdays) ──► /api/tick ──┐
+Vercel Cron (daily 11:00 UTC)            ──► /api/cron/universe (re-rank if older than 7 days)
 Vercel Cron (daily 22:15 UTC)            ──► /api/cron/journal
                                                            ▼
 Next.js on Vercel ── engine: sync fills → exits → candidates → risk rules → Claude review → orders
@@ -46,6 +50,7 @@ Vercel's Hobby plan only allows daily crons, so the per-minute tick comes from a
    ```
    npm run dry-run              # strategies vs live data, no DB, no orders
    npm run dry-run -- --review  # also has Claude review the top candidate
+   npm run universe             # rank and save the top-500 universe now
    npm run dev -- -p 3001
    ```
    With `APP_PASSWORD` empty the dashboard is open locally; in production it is locked unless set.
@@ -59,6 +64,7 @@ Vercel's Hobby plan only allows daily crons, so the per-minute tick comes from a
 - `src/lib/strategies/*` - one file per strategy (`entry`, `bracket`, `exit`, param metadata)
 - `src/lib/engine.ts` - the tick: reconcile, exits, candidates, risk gate, review, orders
 - `src/lib/agent.ts` - Claude reviewer (structured output) and journal writer
+- `src/lib/universe.ts` - most-active ranking and the scan list
 - `src/lib/settings.ts` - risk rules, watchlist, reviewer settings (stored in Postgres, editable in the UI)
 
 Adding a strategy: create a file in `src/lib/strategies/` that exports a `Strategy`, add it to `index.ts`. It appears

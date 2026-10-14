@@ -91,3 +91,11 @@ export const journal = pgTable("journal", {
   markdown: text("markdown").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Auto-ranked scan universe (most active stocks by dollar volume), refreshed weekly.
+export const universe = pgTable("universe", {
+  id: integer("id").primaryKey().default(1),
+  symbols: jsonb("symbols").$type<string[]>().notNull(),
+  meta: jsonb("meta").$type<{ candidates: number; ranked: number; exchanges: string[]; lookbackDays: number }>().notNull(),
+  computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+});

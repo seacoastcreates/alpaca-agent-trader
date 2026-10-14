@@ -7,6 +7,7 @@ import { db, strategies } from "@/lib/db";
 import { flattenAll, tick } from "@/lib/engine";
 import { runJournal } from "@/lib/journal";
 import { getSettings, saveSettings } from "@/lib/settings";
+import { refreshUniverse } from "@/lib/universe";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -72,7 +73,13 @@ export async function resetStrategy(id: string) {
 
 const SettingsSchema = z.object({
   killSwitch: z.boolean(),
-  watchlist: z.array(z.string().regex(/^[A-Z.]{1,6}$/)).min(1).max(200),
+  watchlist: z.array(z.string().regex(/^[A-Z.]{1,6}$/)).max(200),
+  universe: z.object({
+    enabled: z.boolean(),
+    size: z.number().int().min(10).max(1000),
+    exchanges: z.array(z.enum(["NYSE", "NASDAQ", "ARCA", "AMEX", "BATS"])).min(1),
+    refreshDays: z.number().int().min(1).max(90),
+  }),
   risk: z.object({
     maxPositionPct: z.number().min(0.1).max(25),
     maxOpenPositions: z.number().int().min(1).max(50),
@@ -105,6 +112,16 @@ export async function generateJournal() {
     await runJournal();
     revalidatePath("/journal");
     return { ok: true as const };
+  } catch (e) {
+    return { ok: false as const, error: errMsg(e) };
+  }
+}
+
+export async function refreshUniverseNow() {
+  try {
+    const r = await refreshUniverse({ force: true });
+    revalidatePath("/settings");
+    return { ok: true as const, count: r.count };
   } catch (e) {
     return { ok: false as const, error: errMsg(e) };
   }

@@ -87,40 +87,78 @@ export const getPortfolioHistory = (period = "3M") =>
 
 // ---- Market data ----
 
-/** Daily bars (split/dividend adjusted), keyed by symbol. Today's in-progress bar is appended from snapshots. */
-export async function getDailyBars(symbols: string[], days = 400): Promise<Record<string, Bar[]>> {
+export type Asset = { symbol: string; exchange: string; tradable: boolean; status: string; name: string };
+export const getAssets = () => trading<Asset[]>("/v2/assets?status=active&asset_class=us_equity");
+
+const chunk = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+
+/** Raw daily bars for many symbols between two dates (batched to keep URLs short, paginated). */
+export async function fetchDailyBars(symbols: string[], start: string, end?: string): Promise<Record<string, Bar[]>> {
   const out: Record<string, Bar[]> = {};
-  if (!symbols.length) return out;
-  const start = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
-  let pageToken: string | undefined;
-  do {
-    const q = new URLSearchParams({
-      symbols: symbols.join(","), timeframe: "1Day", start, limit: "10000", adjustment: "all", feed: FEED,
-    });
-    if (pageToken) q.set("page_token", pageToken);
-    const res = await data<{ bars: Record<string, Bar[]>; next_page_token: string | null }>(`/v2/stocks/bars?${q}`);
-    for (const [sym, bars] of Object.entries(res.bars ?? {})) (out[sym] ??= []).push(...bars);
-    pageToken = res.next_page_token ?? undefined;
-  } while (pageToken);
+  for (const batch of chunk(symbols, 200)) {
+    let pageToken: string | undefined;
+    do {
+      const q = new URLSearchParams({
+        symbols: batch.join(","), timeframe: "1Day", start, limit: "10000", adjustment: "all", feed: FEED,
+      });
+      if (end) q.set("end", end);
+      if (pageToken) q.set("page_token", pageToken);
+      const res = await data<{ bars: Record<string, Bar[]>; next_page_token: string | null }>(`/v2/stocks/bars?${q}`);
+      for (const [sym, bars] of Object.entries(res.bars ?? {})) (out[sym] ??= []).push(...bars);
+      pageToken = res.next_page_token ?? undefined;
+    } while (pageToken);
+  }
+  return out;
+}
+
+// Completed daily bars don't change during the day, so keep them in memory per ET day.
+// Warm serverless instances reuse this; a cold start reloads from Alpaca (a few seconds for ~500 symbols).
+const history: { day: string; bars: Map<string, Bar[]> } = { day: "", bars: new Map() };
+
+const etDate = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(d);
+
+/** Daily bars (split/dividend adjusted), keyed by symbol, with today's in-progress bar appended from snapshots. */
+export async function getDailyBars(symbols: string[], days = 400): Promise<Record<string, Bar[]>> {
+  if (!symbols.length) return {};
+  const today = etDate();
+  if (history.day !== today) {
+    history.day = today;
+    history.bars.clear();
+  }
+  const missing = symbols.filter((s) => !history.bars.has(s));
+  if (missing.length) {
+    const start = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
+    const fetched = await fetchDailyBars(missing, start);
+    for (const sym of missing) {
+      history.bars.set(sym, (fetched[sym] ?? []).filter((b) => b.t.slice(0, 10) < today));
+    }
+  }
 
   const snaps = await getSnapshots(symbols);
+  const out: Record<string, Bar[]> = {};
   for (const sym of symbols) {
+    const bars = [...(history.bars.get(sym) ?? [])];
     const snap = snaps[sym];
-    const bars = (out[sym] ??= []);
-    if (!snap?.dailyBar) continue;
-    const today = snap.dailyBar;
-    const last = bars[bars.length - 1];
-    // Use the latest trade as the "close" of the in-progress bar.
-    const live: Bar = { ...today, c: snap.latestTrade?.p ?? today.c };
-    if (last && last.t.slice(0, 10) === today.t.slice(0, 10)) bars[bars.length - 1] = live;
-    else bars.push(live);
+    if (snap?.dailyBar) {
+      // Use the latest trade as the "close" of the in-progress bar.
+      const live: Bar = { ...snap.dailyBar, c: snap.latestTrade?.p ?? snap.dailyBar.c };
+      const last = bars[bars.length - 1];
+      if (last && last.t.slice(0, 10) === live.t.slice(0, 10)) bars[bars.length - 1] = live;
+      else bars.push(live);
+    }
+    out[sym] = bars;
   }
   return out;
 }
 
 type Snapshot = { latestTrade?: { p: number; t: string }; dailyBar?: Bar; prevDailyBar?: Bar };
-export function getSnapshots(symbols: string[]) {
-  return data<Record<string, Snapshot>>(`/v2/stocks/snapshots?symbols=${symbols.join(",")}&feed=${FEED}`);
+export async function getSnapshots(symbols: string[]): Promise<Record<string, Snapshot>> {
+  const results = await Promise.all(
+    chunk(symbols, 200).map((batch) =>
+      data<Record<string, Snapshot>>(`/v2/stocks/snapshots?symbols=${batch.join(",")}&feed=${FEED}`),
+    ),
+  );
+  return Object.assign({}, ...results);
 }
 
 export type NewsItem = { headline: string; summary: string; created_at: string; source: string };

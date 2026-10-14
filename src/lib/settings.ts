@@ -3,7 +3,13 @@ import { db, settings as settingsTable } from "./db";
 
 export type Settings = {
   killSwitch: boolean; // blocks new entries; exits keep running
-  watchlist: string[];
+  watchlist: string[]; // pinned symbols, always scanned
+  universe: {
+    enabled: boolean; // also scan the auto-ranked most-active stocks
+    size: number;
+    exchanges: string[];
+    refreshDays: number;
+  };
   risk: {
     maxPositionPct: number; // % of equity per new position
     maxOpenPositions: number;
@@ -31,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
     "JPM", "BAC", "V", "MA", "UNH", "LLY", "JNJ", "XOM", "CVX",
     "COST", "WMT", "HD", "NFLX", "CRM",
   ],
+  universe: { enabled: true, size: 500, exchanges: ["NYSE", "NASDAQ"], refreshDays: 7 },
   risk: {
     maxPositionPct: 5,
     maxOpenPositions: 10,
@@ -58,6 +65,7 @@ export async function getSettings(): Promise<Settings> {
   return {
     ...DEFAULT_SETTINGS,
     ...d,
+    universe: { ...DEFAULT_SETTINGS.universe, ...d.universe },
     risk: { ...DEFAULT_SETTINGS.risk, ...d.risk },
     agent: { ...DEFAULT_SETTINGS.agent, ...d.agent },
   };

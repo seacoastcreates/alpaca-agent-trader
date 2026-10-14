@@ -6,6 +6,10 @@ import { round, type Bar } from "./indicators";
 import { getSettings } from "./settings";
 import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strategies";
 import { etDay, etMinutes, hhmmToMinutes } from "./time";
+import { scanList } from "./universe";
+
+// Each review takes a few seconds; leave the rest for the next tick so a run stays well under the time limit.
+const MAX_REVIEWS_PER_TICK = 4;
 
 type ActiveStrategy = { def: Strategy; enabled: boolean; params: Params };
 
@@ -210,7 +214,8 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
   const [ours, live] = await Promise.all([db.select().from(positions), alpaca.getPositions()]);
   const liveSymbols = new Set(live.map((p) => p.symbol));
-  const symbols = [...new Set([...settings.watchlist, ...ours.map((p) => p.symbol)])];
+  const scan = await scanList(settings);
+  const symbols = [...new Set([...scan, ...ours.map((p) => p.symbol)])];
   const barsBySymbol = await alpaca.getDailyBars(symbols);
   const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
 
@@ -274,7 +279,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const held = new Set([...ours.map((p) => p.symbol), ...liveSymbols]);
   const raw: { strat: ActiveStrategy; symbol: string; bars: Bar[]; score: number; indicators: Record<string, number> }[] = [];
   for (const strat of active.filter((a) => a.enabled)) {
-    for (const symbol of settings.watchlist) {
+    for (const symbol of scan) {
       const bars = barsBySymbol[symbol];
       if (held.has(symbol) || !bars || bars.length < 30) continue;
       if (bars.at(-1)!.c < settings.risk.minPrice) continue;
@@ -303,6 +308,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   for (const p of ours) perStrategy.set(p.strategyId, (perStrategy.get(p.strategyId) ?? 0) + 1);
   let entriesToday = todaySignals.filter((s) => s.status === "ordered").length;
   let reviewsToday = todaySignals.filter((s) => s.review).length;
+  let reviewsThisTick = 0;
 
   const record = async (
     c: (typeof candidates)[number], status: string, reason: string | null, review?: Review, orderId?: string,
@@ -353,8 +359,11 @@ async function runTick(result: TickResult, dryRun: boolean) {
           await record(c, "blocked", "review_budget_exhausted");
           continue;
         }
+      } else if (reviewsThisTick >= MAX_REVIEWS_PER_TICK) {
+        continue; // picked up again next tick
       } else {
         try {
+          reviewsThisTick++;
           const news = await alpaca.getNews(c.symbol).catch(() => []);
           review = await reviewEntry({
             model: settings.agent.model, symbol: c.symbol, strategyName: c.strat.def.name,
