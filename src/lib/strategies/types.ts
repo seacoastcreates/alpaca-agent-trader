@@ -7,7 +7,7 @@ export type ParamMeta = { label: string; min?: number; max?: number; step?: numb
 export type EntryContext = {
   bars: Bar[];
   params: Params;
-  /** 0-1 share of today's session elapsed; used to project partial-day volume. */
+  /** Expected share of a full day's volume traded so far (1 for a completed bar); used to project partial-day volume. */
   sessionFraction: number;
 };
 

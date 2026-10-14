@@ -18,12 +18,15 @@ async function main() {
   const counts = watchlist.map((s) => bars[s]?.length ?? 0);
   console.log(`bars: ${watchlist.length} symbols, ${Math.min(...counts)}-${Math.max(...counts)} bars each, last ${bars.SPY?.at(-1)?.t}`);
 
-  const sessionFraction = clock.is_open ? Math.min(Math.max((etMinutes() - 570) / 390, 0.1), 1) : 1;
+  const { sessionVolumeShare } = await import("../src/lib/engine");
+  const { etDay } = await import("../src/lib/time");
+  const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
   const found: { strategy: string; symbol: string; score: number; indicators: Record<string, number> }[] = [];
   for (const s of STRATEGIES) {
     for (const sym of watchlist) {
       const b = bars[sym];
       if (!b || b.length < 30) continue;
+      const sessionFraction = sessionVolumeShare(b, etDay(), clock.is_open, elapsed);
       const sig = s.entry({ bars: b, params: s.defaultParams, sessionFraction });
       if (sig) found.push({ strategy: s.id, symbol: sym, ...sig });
     }

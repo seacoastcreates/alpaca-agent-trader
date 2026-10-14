@@ -115,6 +115,18 @@ async function closePosition(symbol: string) {
   }
 }
 
+/**
+ * Share of a normal day's volume we'd expect to have traded so far. 1 when the last bar is a completed session
+ * (pre-market, after the close, or a symbol with no trades yet today). Volume is front-loaded at the open, so a
+ * straight time fraction would overstate early-session volume; elapsed^0.7 roughly tracks the intraday curve
+ * (~17% of volume by 10:00 ET, ~60% by 12:45).
+ */
+export function sessionVolumeShare(bars: Bar[], today: string, isOpen: boolean, elapsed: number) {
+  const lastIsToday = bars.at(-1)?.t.slice(0, 10) === today;
+  if (!isOpen || !lastIsToday) return 1;
+  return Math.max(elapsed ** 0.7, 0.05);
+}
+
 // ---------------------------------------------------------------------------
 // Tick
 // ---------------------------------------------------------------------------
@@ -200,7 +212,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const liveSymbols = new Set(live.map((p) => p.symbol));
   const symbols = [...new Set([...settings.watchlist, ...ours.map((p) => p.symbol)])];
   const barsBySymbol = await alpaca.getDailyBars(symbols);
-  const sessionFraction = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
+  const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
 
   // ---- Exits (run for every strategy, even disabled ones, so nothing is orphaned) ----
   for (const pos of ours) {
@@ -266,6 +278,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       const bars = barsBySymbol[symbol];
       if (held.has(symbol) || !bars || bars.length < 30) continue;
       if (bars.at(-1)!.c < settings.risk.minPrice) continue;
+      const sessionFraction = sessionVolumeShare(bars, today, clock.is_open, elapsed);
       const sig = strat.def.entry({ bars, params: strat.params, sessionFraction });
       if (sig) raw.push({ strat, symbol, bars, ...sig });
     }

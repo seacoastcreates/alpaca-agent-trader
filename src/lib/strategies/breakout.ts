@@ -22,7 +22,7 @@ export const breakout: Strategy = {
     const avgVol = priorAvgVolume(bars, lookback);
     const last = bars.at(-1);
     if (high == null || avgVol == null || !last || avgVol === 0) return null;
-    const projectedVol = last.v / Math.max(sessionFraction, 0.1);
+    const projectedVol = last.v / sessionFraction;
     const volRatio = projectedVol / avgVol;
     if (last.c <= high || volRatio < num(p, "volMult")) return null;
     const breakoutPct = (last.c / high - 1) * 100;
