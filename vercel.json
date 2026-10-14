@@ -1,3 +1,40 @@
 {
-  "crons": [{ "path": "/api/cron/journal", "schedule": "30 21 * * 1-5" }]
+  "crons": [
+    {
+      "path": "/api/tick?slot=14",
+      "schedule": "0 14 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=15",
+      "schedule": "0 15 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=16",
+      "schedule": "0 16 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=17",
+      "schedule": "0 17 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=18",
+      "schedule": "0 18 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=19",
+      "schedule": "0 19 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=20",
+      "schedule": "0 20 * * 1-5"
+    },
+    {
+      "path": "/api/tick?slot=21",
+      "schedule": "0 21 * * 1-5"
+    },
+    {
+      "path": "/api/cron/journal",
+      "schedule": "15 22 * * 1-5"
+    }
+  ]
 }

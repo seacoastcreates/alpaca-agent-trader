@@ -18,21 +18,23 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
 ## Architecture
 
 ```
-cron-job.org (every 15 min, market hours) ──► /api/tick ──┐
-Vercel Cron (daily 21:30 UTC)            ──► /api/cron/journal
+Vercel Cron (hourly, 14-21 UTC weekdays) ──► /api/tick ───┐
+Vercel Cron (daily 22:15 UTC)            ──► /api/cron/journal
                                                            ▼
 Next.js on Vercel ── engine: sync fills → exits → candidates → risk rules → Claude review → orders
         │                     │                                                    │
    Neon Postgres         Alpaca paper API + market data (IEX feed)           Anthropic API
 ```
 
-Vercel's Hobby plan only allows **daily** crons, so the 15-minute tick comes from cron-job.org (free).
+Vercel's Hobby plan only allows each cron job to run once a day, so `vercel.json` defines eight daily jobs, one per
+market hour. Hobby timing is loose (a job fires somewhere inside its scheduled hour), so expect roughly hourly
+ticks. That's fine for daily-bar strategies, and stops live at Alpaca as real orders between ticks.
+For tighter timing, upgrade to Vercel Pro or point any external scheduler at `/api/tick` (see below).
 
 | Piece | Cost |
 |---|---|
 | Vercel Hobby | $0 |
 | Neon free tier | $0 |
-| cron-job.org | $0 |
 | Claude Haiku 5.5 reviews + journal | ~$0.01-0.03 / day |
 
 ## Setup
@@ -49,12 +51,9 @@ Vercel's Hobby plan only allows **daily** crons, so the 15-minute tick comes fro
    ```
    With `APP_PASSWORD` empty the dashboard is open locally; in production it is locked unless set.
 3. **Vercel**: import the GitHub repo, add every variable from `.env.example`, deploy.
-   The journal cron in `vercel.json` registers automatically and sends `CRON_SECRET` as a Bearer token.
-4. **cron-job.org**: new cron job
-   - URL: `https://<your-app>.vercel.app/api/tick`
-   - Schedule: every 15 minutes, 9:00-16:59, Mon-Fri, timezone **America/New_York**
-   - Advanced → Headers: `Authorization: Bearer <CRON_SECRET>`
-   - Ticks outside market hours just sync fills and exit, so the loose window is fine.
+   The crons in `vercel.json` register automatically and Vercel sends `CRON_SECRET` as a Bearer token.
+4. *(Optional)* **Faster ticks**: any external scheduler can call `https://<your-app>.vercel.app/api/tick`
+   with the header `Authorization: Bearer <CRON_SECRET>`. Ticks outside market hours just sync fills and exit.
 
 ## Where things live
 
