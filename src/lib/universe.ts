@@ -17,6 +17,11 @@ const NOT_A_HOLDING = new Set([
 // Single-stock funds are leveraged, inverse or option-income products and say so in the name.
 const SINGLE_STOCK_PRODUCT = /\b(\d(\.\d+)?x|Daily|Bull|Bear|Option Income|Covered Call|WeeklyPay|YieldBoost|Target)\b/i;
 
+// The strategies only buy, so inverse funds (a bet on the market falling) and bond funds (too little movement for
+// the targets and stops) are poor fits. "Short-Term" is a bond maturity, not an inverse fund.
+const INVERSE_FUND = /\bBear\b|UltraShort|\bShort\b(?![- ]Term)|\bInverse\b/i;
+const isTradableEtf = (name: string) => !INVERSE_FUND.test(name) && etfSector(name) !== "Bonds ETF";
+
 /** e.g. "Direxion Daily TSLA Bull 2X ETF", "YieldMax NVDA Option Income Strategy ETF". */
 function isSingleStockFund(name: string, stockTickers: Set<string>) {
   if (!SINGLE_STOCK_PRODUCT.test(name)) return false;
@@ -51,7 +56,7 @@ export async function computeUniverse(settings: Settings) {
   const stockCandidates = stocks.filter((a) => exchanges.includes(a.exchange));
   // ETFs list across exchanges (most on NYSE Arca and Cboe BZX), so no exchange filter here.
   const funds = all.filter((a) => FUND_NAME.test(a.name));
-  const etfCandidates = funds.filter((a) => !isSingleStockFund(a.name, stockTickers));
+  const etfCandidates = funds.filter((a) => !isSingleStockFund(a.name, stockTickers) && isTradableEtf(a.name));
 
   const start = new Date(Date.now() - LOOKBACK_DAYS * 1.6 * 86400_000).toISOString().slice(0, 10);
   const symbols = [...stockCandidates, ...(etfCount > 0 ? etfCandidates : [])].map((a) => a.symbol);
@@ -71,7 +76,7 @@ export async function computeUniverse(settings: Settings) {
       exchanges,
       lookbackDays: LOOKBACK_DAYS,
       etfs: topEtfs.map((r) => r.symbol),
-      singleStockFundsExcluded: funds.length - etfCandidates.length,
+      fundsExcluded: funds.length - etfCandidates.length, // single-stock, inverse and bond funds
     },
   };
 }

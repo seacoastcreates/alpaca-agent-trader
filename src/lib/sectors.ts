@@ -45,7 +45,7 @@ const ETF_RULES: [RegExp, string][] = [
   [/Health|Biotech|Pharma/i, "Health Care"],
   [/Utilities/i, "Utilities"],
   [/Real Estate|REIT/i, "Real Estate"],
-  [/Industrial|Jets|Aerospace|Defense|Transport/i, "Industrials"],
+  [/Industrial(?! Average)|Jets|Aerospace|Defense|Transport/i, "Industrials"],
   [/Materials|Miners|Metals/i, "Basic Materials"],
   [/Staples/i, "Consumer Staples"],
   [/Discretionary|Retail|Homebuild|Home Construction/i, "Consumer Discretionary"],
