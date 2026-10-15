@@ -43,13 +43,19 @@ export async function recordClosedTrade(pos: Position, exit: alpaca.Order) {
 
   const isOption = pos.instrument === "call" || pos.instrument === "put";
   const mult = pos.multiplier ?? 1;
-  const [path, spyEntry, spyExit, underlyingExit] = await Promise.all([
+  const [bars, spyEntry, spyExit, underlyingExit] = await Promise.all([
     pathStats(pos.contract ?? pos.symbol, openedAt, closedAt, isOption),
     alpaca.priceAt("SPY", openedAt).catch(() => null),
     alpaca.priceAt("SPY", closedAt).catch(() => null),
     isOption ? alpaca.priceAt(pos.symbol, closedAt).catch(() => null) : Promise.resolve(exitPrice),
   ]);
 
+  // Thinly traded contracts or very short holds may have no bars; the two fills still bound the path.
+  const path = bars ?? {
+    high: Math.max(entryPrice, exitPrice),
+    low: Math.min(entryPrice, exitPrice),
+    sessions: new Set([etDay(openedAt), etDay(closedAt)]).size,
+  };
   const pnlPct = pct(exitPrice, entryPrice);
   // Shares risk entry-to-stop; an option's planned risk is its premium stop.
   const premiumStopPct = Number(pos.params?.opt_premiumStopPct ?? 0);

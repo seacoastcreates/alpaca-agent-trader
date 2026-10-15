@@ -176,12 +176,19 @@ export async function getIntradayBars(symbol: string, start: string, end: string
   return out;
 }
 
-/** Price of a symbol at an instant: the open of the first 1-minute bar at or after it (null if none yet). */
+/**
+ * Price of a symbol at an instant: the close of the last 1-minute bar at or before it. Trades are recorded within a
+ * minute of the fill, before the bar for that minute exists, so looking forward would usually find nothing.
+ * Falls back to the latest trade.
+ */
 export async function priceAt(symbol: string, at: Date): Promise<number | null> {
-  const end = new Date(at.getTime() + 4 * 86400_000).toISOString(); // spans a weekend/holiday for overnight fills
-  const q = new URLSearchParams({ timeframe: "1Min", start: at.toISOString(), end, limit: "1", feed: FEED });
+  const start = new Date(at.getTime() - 4 * 86400_000).toISOString(); // spans a weekend/holiday
+  const q = new URLSearchParams({ timeframe: "1Min", start, end: at.toISOString(), limit: "10000", feed: FEED, sort: "desc" });
   const res = await data<{ bars: Bar[] | null }>(`/v2/stocks/${symbol}/bars?${q}`);
-  return res.bars?.[0]?.o ?? null;
+  const bar = res.bars?.[0];
+  if (bar) return bar.c;
+  const snap = (await getSnapshots([symbol]))[symbol];
+  return snap?.latestTrade?.p ?? null;
 }
 
 // ---- Options ----
