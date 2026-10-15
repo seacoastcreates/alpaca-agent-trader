@@ -161,6 +161,28 @@ export async function getSnapshots(symbols: string[]): Promise<Record<string, Sn
   return Object.assign({}, ...results);
 }
 
+/** Intraday bars for one symbol between two instants (paginated). */
+export async function getIntradayBars(symbol: string, start: string, end: string, timeframe = "5Min"): Promise<Bar[]> {
+  const out: Bar[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = new URLSearchParams({ timeframe, start, end, limit: "10000", feed: FEED });
+    if (pageToken) q.set("page_token", pageToken);
+    const res = await data<{ bars: Bar[] | null; next_page_token: string | null }>(`/v2/stocks/${symbol}/bars?${q}`);
+    out.push(...(res.bars ?? []));
+    pageToken = res.next_page_token ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
+/** Price of a symbol at an instant: the open of the first 1-minute bar at or after it (null if none yet). */
+export async function priceAt(symbol: string, at: Date): Promise<number | null> {
+  const end = new Date(at.getTime() + 4 * 86400_000).toISOString(); // spans a weekend/holiday for overnight fills
+  const q = new URLSearchParams({ timeframe: "1Min", start: at.toISOString(), end, limit: "1", feed: FEED });
+  const res = await data<{ bars: Bar[] | null }>(`/v2/stocks/${symbol}/bars?${q}`);
+  return res.bars?.[0]?.o ?? null;
+}
+
 export type NewsItem = { headline: string; summary: string; created_at: string; source: string };
 export async function getNews(symbol: string, sinceDays = 4): Promise<NewsItem[]> {
   const start = new Date(Date.now() - sinceDays * 86400_000).toISOString();

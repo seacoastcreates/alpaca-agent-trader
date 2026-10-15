@@ -61,12 +61,54 @@ Vercel's Hobby plan only allows daily crons, so the per-minute tick comes from a
 4. **Pinger**: on the Netlify site, set `TICK_URL=https://<your-app>.vercel.app/api/tick` and the same `CRON_SECRET`
    (scope: Functions), then redeploy. See `pinger/README.md`.
 
+## Trade log and backtesting
+
+Every completed round trip is one row in the `trades` table (Neon Postgres). Download it as CSV from
+**Activity -> Trades CSV**, or query it in the Neon SQL editor. Each row has:
+
+| Group | Columns |
+|---|---|
+| Rule | `strategy_id`, `strategy_name`, `params` (strategy settings at entry), `app_version` (git commit) |
+| What | `symbol`, `sector`, `side`, `qty`, `entry_notional`, `equity_at_entry`, `position_pct` |
+| Entry | `entry_signal_at` / `entry_signal_price` (rule fired), `opened_at` / `entry_price` (buy fill), `entry_slippage_pct`, `entry_indicators` |
+| Plan | `stop_price`, `take_profit_price`, `risk_per_share` |
+| Exit | `exit_reason`, `exit_signal_at` / `exit_signal_price`, `closed_at` / `exit_price` (sell fill), `exit_order_type`, `exit_slippage_pct`, `exit_indicators` |
+| Result | `pnl`, `pnl_pct`, `r_multiple`, `hold_minutes`, `hold_sessions`, `mfe_pct` / `mae_pct` (best / worst while held) |
+| Benchmark | `spy_entry_price`, `spy_exit_price`, `spy_return_pct`, `excess_return_pct` |
+| Claude | `review_decision`, `review_confidence`, `review_reason`, `review_model`, `review` |
+
+Every decision that did *not* become a trade (blocked by a risk rule, vetoed by Claude) is in `signals`
+(**Signals CSV**), with the indicators at the time.
+
+```sql
+-- Scoreboard by rule
+select strategy_id, count(*) trades, round(avg((pnl > 0)::int) * 100, 1) win_rate,
+       round(avg(pnl_pct)::numeric, 2) avg_pct, round(avg(r_multiple)::numeric, 2) avg_r,
+       round(sum(pnl)::numeric, 2) total_pnl, round(avg(excess_return_pct)::numeric, 2) avg_vs_spy
+from trades group by 1 order by total_pnl desc;
+
+-- Do the targets leave money on the table? (best unrealised gain vs what was kept)
+select strategy_id, exit_reason, count(*), round(avg(mfe_pct)::numeric, 2) avg_best, round(avg(pnl_pct)::numeric, 2) avg_kept
+from trades group by 1, 2 order by 1, 2;
+
+-- Did a parameter change help? (params are snapshotted per trade)
+select params->>'rsiEntry' rsi_entry, count(*), round(avg(pnl_pct)::numeric, 2) avg_pct
+from trades where strategy_id = 'trend_pullback' group by 1;
+
+-- Is Claude's confidence predictive?
+select width_bucket(review_confidence, 0, 1, 4) bucket, count(*), round(avg(pnl_pct)::numeric, 2) avg_pct
+from trades where review_decision = 'approve' group by 1 order by 1;
+```
+
+`mfe_pct`/`mae_pct` and hold sessions come from 5-minute IEX bars; SPY prices are the 1-minute bar at each fill.
+
 ## Where things live
 
 - `src/lib/strategies/*` - one file per strategy (`entry`, `bracket`, `exit`, param metadata)
 - `src/lib/engine.ts` - the tick: reconcile, exits, candidates, risk gate, review, orders
 - `src/lib/agent.ts` - Claude reviewer (structured output) and journal writer
 - `src/lib/universe.ts` - most-active ranking and the scan list
+- `src/lib/trades.ts` - builds the `trades` row when a position closes
 - `src/lib/settings.ts` - risk rules, watchlist, reviewer settings (stored in Postgres, editable in the UI)
 
 Adding a strategy: create a file in `src/lib/strategies/` that exports a `Strategy`, add it to `index.ts`. It appears

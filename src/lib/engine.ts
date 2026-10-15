@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import * as alpaca from "./alpaca";
 import { reviewEntry } from "./agent";
 import { db, positions, runs, signals, strategies, trades, type Review } from "./db";
+import { appVersion, recordClosedTrade } from "./trades";
 import { round, type Bar } from "./indicators";
 import { getSettings } from "./settings";
 import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strategies";
@@ -52,7 +53,10 @@ async function syncPositions(log: string[]) {
         const entryPrice = Number(order.filled_avg_price);
         await db
           .update(positions)
-          .set({ state: "open", qty: filledQty, entryPrice, highWater: entryPrice })
+          .set({
+            state: "open", qty: filledQty, entryPrice, highWater: entryPrice,
+            entryFilledAt: order.filled_at ? new Date(order.filled_at) : new Date(),
+          })
           .where(eq(positions.symbol, pos.symbol));
         log.push(`filled ${pos.symbol} x${filledQty} @ ${entryPrice}`);
       } else if (!order || ["canceled", "expired", "rejected"].includes(order.status)) {
@@ -78,25 +82,9 @@ async function syncPositions(log: string[]) {
       .filter((o) => o.side === "sell" && o.status === "filled" && o.filled_at)
       .sort((a, b) => b.filled_at!.localeCompare(a.filled_at!));
     const exit = sells[0];
-    const exitPrice = exit ? Number(exit.filled_avg_price) : null;
-    const entryPrice = pos.entryPrice;
-    if (exitPrice && entryPrice) {
-      const reason =
-        pos.exitReason ??
-        (exit!.type === "stop" ? "stop_loss" : exit!.type === "limit" ? "take_profit" : "external");
-      await db.insert(trades).values({
-        symbol: pos.symbol,
-        strategyId: pos.strategyId,
-        qty: pos.qty,
-        entryPrice,
-        exitPrice,
-        pnl: round((exitPrice - entryPrice) * pos.qty),
-        pnlPct: round((exitPrice / entryPrice - 1) * 100),
-        exitReason: reason,
-        openedAt: pos.openedAt,
-        closedAt: new Date(exit!.filled_at!),
-      });
-      log.push(`closed ${pos.symbol} (${reason}) ${round((exitPrice / entryPrice - 1) * 100)}%`);
+    if (exit && pos.entryPrice) {
+      const { exitReason, pnlPct } = await recordClosedTrade(pos, exit);
+      log.push(`closed ${pos.symbol} (${exitReason}) ${pnlPct}%`);
     } else {
       log.push(`${pos.symbol} disappeared without a matching fill; removed`);
     }
@@ -249,7 +237,10 @@ async function runTick(result: TickResult, dryRun: boolean) {
         symbol: pos.symbol, qty, side: "sell", type: "market", time_in_force: "day",
         client_order_id: clientId("x", def.id, pos.symbol),
       });
-      await db.update(positions).set({ state: "closing", exitReason: exit.reason }).where(eq(positions.symbol, pos.symbol));
+      await db.update(positions).set({
+        state: "closing", exitReason: exit.reason, exitSignalAt: new Date(), exitSignalPrice: price,
+        exitIndicators: exit.indicators, exitOrderId: order.id,
+      }).where(eq(positions.symbol, pos.symbol));
       await db.insert(signals).values({
         day: today, runId: result.runId, symbol: pos.symbol, strategyId: def.id, kind: "exit",
         price, indicators: exit.indicators, status: "ordered", reason: exit.reason, orderId: order.id,
@@ -326,6 +317,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       price: c.indicators.price, indicators: c.indicators, status, reason, review, orderId,
     }).returning();
     todaySignals.push(row);
+    return row;
   };
 
   for (const c of candidates) {
@@ -400,6 +392,8 @@ async function runTick(result: TickResult, dryRun: boolean) {
       .values({
         symbol: c.symbol, strategyId: sid, sector, state: "pending", qty, entryOrderId: "pending",
         stopPrice: round(legs.stopPrice), takeProfitPrice: legs.takeProfitPrice ? round(legs.takeProfitPrice) : null,
+        signalAt: new Date(), signalPrice: price, entryIndicators: c.indicators, params: c.strat.params,
+        review, equityAtEntry: equity, appVersion: appVersion(),
       })
       .onConflictDoNothing()
       .returning();
@@ -413,8 +407,8 @@ async function runTick(result: TickResult, dryRun: boolean) {
         stop_loss: { stop_price: round(legs.stopPrice).toFixed(2) },
         ...(legs.takeProfitPrice ? { take_profit: { limit_price: round(legs.takeProfitPrice).toFixed(2) } } : {}),
       });
-      await db.update(positions).set({ entryOrderId: order.id }).where(eq(positions.symbol, c.symbol));
-      await record(c, "ordered", review ? `reviewer: ${review.reason}` : null, review, order.id);
+      const sig = await record(c, "ordered", review ? `reviewer: ${review.reason}` : null, review, order.id);
+      await db.update(positions).set({ entryOrderId: order.id, signalId: sig?.id }).where(eq(positions.symbol, c.symbol));
       result.entries.push(`${c.symbol} x${qty} (${sid})`);
       openCount++;
       entriesToday++;
@@ -437,11 +431,14 @@ export async function flattenAll(): Promise<string[]> {
     await closePosition(pos.symbol);
     const livePos = live.find((p) => p.symbol === pos.symbol);
     if (!livePos) continue; // pending entry: cancelling it was enough
-    await alpaca.submitOrder({
+    const order = await alpaca.submitOrder({
       symbol: pos.symbol, qty: livePos.qty, side: "sell", type: "market", time_in_force: "day",
       client_order_id: clientId("x", pos.strategyId, pos.symbol),
     });
-    await db.update(positions).set({ state: "closing", exitReason: "manual_flatten" }).where(eq(positions.symbol, pos.symbol));
+    await db.update(positions).set({
+      state: "closing", exitReason: "manual_flatten", exitSignalAt: new Date(),
+      exitSignalPrice: Number(livePos.current_price), exitOrderId: order.id,
+    }).where(eq(positions.symbol, pos.symbol));
     done.push(pos.symbol);
   }
   return done;

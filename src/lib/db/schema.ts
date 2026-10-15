@@ -58,6 +58,7 @@ export const signals = pgTable(
 );
 
 // Positions the bot owns. Anything else in the Alpaca account is left alone.
+// Entry context is captured here while the trade is open and copied into `trades` when it closes.
 export const positions = pgTable("positions", {
   symbol: text("symbol").primaryKey(),
   strategyId: text("strategy_id").notNull(),
@@ -66,26 +67,90 @@ export const positions = pgTable("positions", {
   qty: doublePrecision("qty").notNull(),
   entryOrderId: text("entry_order_id").notNull(),
   entryPrice: doublePrecision("entry_price"),
+  entryFilledAt: timestamp("entry_filled_at", { withTimezone: true }),
   stopPrice: doublePrecision("stop_price"),
   takeProfitPrice: doublePrecision("take_profit_price"),
   highWater: doublePrecision("high_water"),
+  signalId: integer("signal_id"),
+  signalAt: timestamp("signal_at", { withTimezone: true }),
+  signalPrice: doublePrecision("signal_price"),
+  entryIndicators: jsonb("entry_indicators").$type<Record<string, number>>(),
+  params: jsonb("params").$type<Record<string, number | boolean>>(),
+  review: jsonb("review").$type<Review>(),
+  equityAtEntry: doublePrecision("equity_at_entry"),
+  appVersion: text("app_version"),
   exitReason: text("exit_reason"),
+  exitSignalAt: timestamp("exit_signal_at", { withTimezone: true }),
+  exitSignalPrice: doublePrecision("exit_signal_price"),
+  exitIndicators: jsonb("exit_indicators").$type<Record<string, number>>(),
+  exitOrderId: text("exit_order_id"),
   openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const trades = pgTable("trades", {
-  id: serial("id").primaryKey(),
-  symbol: text("symbol").notNull(),
-  strategyId: text("strategy_id").notNull(),
-  qty: doublePrecision("qty").notNull(),
-  entryPrice: doublePrecision("entry_price").notNull(),
-  exitPrice: doublePrecision("exit_price").notNull(),
-  pnl: doublePrecision("pnl").notNull(),
-  pnlPct: doublePrecision("pnl_pct").notNull(),
-  exitReason: text("exit_reason").notNull(),
-  openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
-  closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
-});
+// One row per completed round trip (buy then sell). This is the table to backtest and analyse against.
+export const trades = pgTable(
+  "trades",
+  {
+    id: serial("id").primaryKey(),
+    symbol: text("symbol").notNull(),
+    sector: text("sector"),
+    side: text("side").notNull().default("long"),
+    // Rule
+    strategyId: text("strategy_id").notNull(),
+    strategyName: text("strategy_name"),
+    params: jsonb("params").$type<Record<string, number | boolean>>(), // strategy parameters at entry
+    appVersion: text("app_version"), // git commit that placed the trade
+    // Size
+    qty: doublePrecision("qty").notNull(),
+    entryNotional: doublePrecision("entry_notional"),
+    equityAtEntry: doublePrecision("equity_at_entry"),
+    positionPct: doublePrecision("position_pct"), // entry notional as % of equity
+    // Entry
+    entrySignalId: integer("entry_signal_id"),
+    entrySignalAt: timestamp("entry_signal_at", { withTimezone: true }),
+    entrySignalPrice: doublePrecision("entry_signal_price"),
+    entryIndicators: jsonb("entry_indicators").$type<Record<string, number>>(),
+    entryOrderId: text("entry_order_id"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(), // buy fill time
+    entryPrice: doublePrecision("entry_price").notNull(), // buy fill price
+    entrySlippagePct: doublePrecision("entry_slippage_pct"), // fill vs signal price, + = paid more
+    // Plan
+    stopPrice: doublePrecision("stop_price"),
+    takeProfitPrice: doublePrecision("take_profit_price"),
+    riskPerShare: doublePrecision("risk_per_share"), // entry - stop
+    // Exit
+    exitReason: text("exit_reason").notNull(), // strategy rule, stop_loss, take_profit, manual_flatten, external
+    exitSignalAt: timestamp("exit_signal_at", { withTimezone: true }),
+    exitSignalPrice: doublePrecision("exit_signal_price"),
+    exitIndicators: jsonb("exit_indicators").$type<Record<string, number>>(),
+    exitOrderId: text("exit_order_id"),
+    exitOrderType: text("exit_order_type"), // market | stop | limit
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull(), // sell fill time
+    exitPrice: doublePrecision("exit_price").notNull(), // sell fill price
+    exitSlippagePct: doublePrecision("exit_slippage_pct"), // fill vs signal price, + = received less
+    // Result
+    pnl: doublePrecision("pnl").notNull(),
+    pnlPct: doublePrecision("pnl_pct").notNull(),
+    rMultiple: doublePrecision("r_multiple"), // pnl per share / risk per share
+    holdMinutes: integer("hold_minutes"),
+    holdSessions: integer("hold_sessions"), // trading sessions touched (1 = same-day round trip)
+    mfePct: doublePrecision("mfe_pct"), // best unrealised gain while held (5-min IEX bars)
+    maePct: doublePrecision("mae_pct"), // worst unrealised loss while held
+    // Benchmark
+    spyEntryPrice: doublePrecision("spy_entry_price"),
+    spyExitPrice: doublePrecision("spy_exit_price"),
+    spyReturnPct: doublePrecision("spy_return_pct"),
+    excessReturnPct: doublePrecision("excess_return_pct"), // pnlPct - spyReturnPct
+    // Claude review
+    reviewDecision: text("review_decision"),
+    reviewConfidence: doublePrecision("review_confidence"),
+    reviewReason: text("review_reason"),
+    reviewModel: text("review_model"),
+    review: jsonb("review").$type<Review>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("trades_strategy_idx").on(t.strategyId), index("trades_closed_idx").on(t.closedAt)],
+);
 
 export const journal = pgTable("journal", {
   day: text("day").primaryKey(),

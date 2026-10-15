@@ -57,17 +57,34 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
         </Table>
       </Card>
 
-      <Card title="Closed trades">
-        <Table head={["Closed (ET)", "Symbol", "Strategy", "Qty", "Entry", "Exit", "P&L", "Exit reason"]} empty={closed.length ? undefined : "No closed trades yet."}>
+      <Card
+        title="Closed trades"
+        action={
+          <div className="flex gap-2 text-xs">
+            <a href="/api/export/trades" download className="rounded border border-line px-2 py-1 hover:bg-ink/5">Trades CSV</a>
+            <a href="/api/export/signals" download className="rounded border border-line px-2 py-1 hover:bg-ink/5">Signals CSV</a>
+          </div>
+        }
+      >
+        <Table
+          head={["Closed (ET)", "Symbol", "Strategy", "Bought", "Sold", "P&L", "R", "vs SPY", "Best / worst", "Held", "Exit reason"]}
+          empty={closed.length ? undefined : "No closed trades yet."}
+        >
           {closed.map((t) => (
             <tr key={t.id}>
               <td className={`${td} whitespace-nowrap`}>{time(t.closedAt)}</td>
-              <td className={`${td} font-medium`}>{t.symbol}</td>
+              <td className={`${td} font-medium`}>
+                {t.symbol}
+                {t.sector && <div className="text-xs font-normal text-muted">{t.sector}</div>}
+              </td>
               <td className={td}>{STRATEGY_BY_ID[t.strategyId]?.name ?? t.strategyId}</td>
-              <td className={td}>{t.qty}</td>
-              <td className={td}>{usd(t.entryPrice)}</td>
-              <td className={td}>{usd(t.exitPrice)}</td>
-              <td className={`${td} ${t.pnl >= 0 ? "text-good" : "text-bad"}`}>{pct(t.pnlPct)} ({usd(t.pnl)})</td>
+              <td className={`${td} whitespace-nowrap`}>{t.qty} @ {usd(t.entryPrice)}<div className="text-xs text-muted">{time(t.openedAt)}</div></td>
+              <td className={`${td} whitespace-nowrap`}>{usd(t.exitPrice)}</td>
+              <td className={`${td} whitespace-nowrap ${t.pnl >= 0 ? "text-good" : "text-bad"}`}>{pct(t.pnlPct)}<div className="text-xs">{usd(t.pnl)}</div></td>
+              <td className={td}>{t.rMultiple != null ? `${t.rMultiple.toFixed(2)}R` : "–"}</td>
+              <td className={td}>{t.excessReturnPct != null ? pct(t.excessReturnPct) : "–"}</td>
+              <td className={`${td} whitespace-nowrap text-ink-2`}>{t.mfePct != null ? `${pct(t.mfePct, 1)} / ${pct(t.maePct!, 1)}` : "–"}</td>
+              <td className={`${td} whitespace-nowrap`}>{t.holdSessions != null ? `${t.holdSessions}d` : t.holdMinutes != null ? `${Math.round(t.holdMinutes / 60)}h` : "–"}</td>
               <td className={td}>{t.exitReason.replace(/_/g, " ")}</td>
             </tr>
           ))}
