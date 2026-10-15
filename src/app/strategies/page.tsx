@@ -13,7 +13,8 @@ export default async function StrategiesPage() {
         <h1 className="text-lg font-semibold">Strategies</h1>
         <p className="mt-1 text-sm text-ink-2">
           Strategies run side by side on daily bars. A symbol belongs to one strategy at a time. Exits keep running
-          for a disabled strategy&apos;s open positions, so nothing is left unmanaged.
+          for a disabled strategy&apos;s open positions, so nothing is left unmanaged. Bearish rules buy puts, so they
+          only trade when Settings is set to options.
         </p>
       </div>
       {active.map((a) => (

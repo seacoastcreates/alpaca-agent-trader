@@ -3,6 +3,7 @@ import { num, type ExitSignal, type Strategy } from "./types";
 
 export const rsiReversion: Strategy = {
   id: "rsi_reversion",
+  direction: "bullish",
   name: "RSI-2 mean reversion",
   rules: (p) =>
     `Short-term mean reversion: buy when RSI(${p.rsiLen}) drops below ${p.rsiEntry} while price is above its ${p.trendLen}-day SMA. ` +

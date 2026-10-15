@@ -4,7 +4,7 @@ import { reviewEntry } from "./agent";
 import { db, positions, runs, signals, strategies, trades, type Review } from "./db";
 import { appVersion, recordClosedTrade } from "./trades";
 import { round, type Bar } from "./indicators";
-import { daysUntil, pickCall, type CallPick } from "./options";
+import { daysUntil, pickOption, type OptionPick } from "./options";
 import { getSettings, type Settings } from "./settings";
 import type { ExitSignal } from "./strategies/types";
 import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strategies";
@@ -40,6 +40,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Position = typeof positions.$inferSelect;
 /** What gets traded at Alpaca: the option contract for calls, the ticker for shares. */
 const orderSymbol = (p: Position) => p.contract ?? p.symbol;
+const isOption = (p: Position) => p.instrument === "call" || p.instrument === "put";
 
 // Option prices trade in $0.05 steps at $3 and above, $0.01 below (penny-pilot names allow pennies throughout,
 // so these are always valid). Buys round up, sells round down, so the limit stays marketable.
@@ -49,8 +50,8 @@ function optionTick(price: number, dir: "up" | "down") {
   return round((dir === "up" ? Math.ceil(n - 1e-9) : Math.floor(n + 1e-9)) * tick);
 }
 
-// Underlyings with no usable calls are re-checked at most every 30 minutes.
-const noCallCache = new Map<string, { reason: string; at: number }>();
+// Underlyings with no usable contracts are re-checked at most every 30 minutes (keyed by symbol:type).
+const noOptionCache = new Map<string, { reason: string; at: number }>();
 
 // ---------------------------------------------------------------------------
 // Sync: reconcile our positions table with what actually happened at Alpaca
@@ -74,7 +75,7 @@ async function syncPositions(log: string[], settings: Settings) {
           .update(positions)
           .set({
             state: "open", qty: filledQty, entryPrice,
-            highWater: pos.instrument === "call" ? pos.underlyingEntryPrice : entryPrice,
+            highWater: isOption(pos) ? pos.underlyingEntryPrice : entryPrice,
             entryFilledAt: order.filled_at ? new Date(order.filled_at) : new Date(),
           })
           .where(eq(positions.symbol, pos.symbol));
@@ -83,7 +84,7 @@ async function syncPositions(log: string[], settings: Settings) {
         await db.delete(positions).where(eq(positions.symbol, pos.symbol));
         log.push(`entry for ${sym} ${order?.status ?? "missing"}, dropped`);
       } else if (
-        pos.instrument === "call" && pos.signalAt &&
+        isOption(pos) && pos.signalAt &&
         Date.now() - pos.signalAt.getTime() > settings.options.entryTimeoutMin * 60_000
       ) {
         // Don't chase: an unfilled limit buy is cancelled and dropped on the next sync.
@@ -101,7 +102,7 @@ async function syncPositions(log: string[], settings: Settings) {
           // which re-submit at a fresh price if the exit condition still holds.
           await db.update(positions).set({ state: "open", exitReason: null }).where(eq(positions.symbol, pos.symbol));
           log.push(`${sym} exit order did not complete; reopened`);
-        } else if (pos.instrument === "call" && pos.exitSignalAt && Date.now() - pos.exitSignalAt.getTime() > 2 * 60_000) {
+        } else if (isOption(pos) && pos.exitSignalAt && Date.now() - pos.exitSignalAt.getTime() > 2 * 60_000) {
           // Limit sell at the bid hasn't filled: cancel so the next tick re-prices it.
           await Promise.all(open.map((o) => alpaca.cancelOrder(o.id).catch(() => undefined)));
           log.push(`${sym} exit unfilled after 2 min, re-pricing`);
@@ -243,9 +244,9 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const barsBySymbol = await alpaca.getDailyBars(symbols);
   const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
 
-  // Current quotes for held calls (one request), used by the premium stop/target.
-  const callContracts = ours.filter((p) => p.instrument === "call" && p.contract).map((p) => p.contract!);
-  const optionQuotes = await alpaca.getOptionSnapshots(callContracts).catch(() => ({} as Record<string, alpaca.OptionSnapshot>));
+  // Current quotes for held options (one request), used by the premium stop/target.
+  const contracts = ours.filter((p) => isOption(p) && p.contract).map((p) => p.contract!);
+  const optionQuotes = await alpaca.getOptionSnapshots(contracts).catch(() => ({} as Record<string, alpaca.OptionSnapshot>));
 
   // ---- Exits (run for every strategy, even disabled ones, so nothing is orphaned) ----
   for (const pos of ours) {
@@ -254,26 +255,32 @@ async function runTick(result: TickResult, dryRun: boolean) {
     const bars = barsBySymbol[pos.symbol];
     if (!def || !bars?.length) continue;
     const params = active.find((a) => a.def.id === def.id)!.params;
-    const isCall = pos.instrument === "call";
+    const opt = isOption(pos);
+    const bearish = def.direction === "bearish";
     const price = bars.at(-1)!.c; // underlying
-    const underlyingEntry = isCall ? (pos.underlyingEntryPrice ?? price) : pos.entryPrice;
-    const highWater = Math.max(pos.highWater ?? underlyingEntry, price);
+    const underlyingEntry = opt ? (pos.underlyingEntryPrice ?? price) : pos.entryPrice;
+    // Best underlying price in the trade's direction (feeds trailing stops).
+    const highWater = bearish
+      ? Math.min(pos.highWater ?? underlyingEntry, price)
+      : Math.max(pos.highWater ?? underlyingEntry, price);
     if (!dryRun && highWater !== pos.highWater) {
       await db.update(positions).set({ highWater }).where(eq(positions.symbol, pos.symbol));
     }
     const entryDay = etDay(pos.openedAt);
     const daysHeld = bars.filter((b) => b.t.slice(0, 10) > entryDay).length;
-    const bid = isCall ? optionQuotes[pos.contract!]?.latestQuote?.bp : undefined;
+    const bid = opt ? optionQuotes[pos.contract!]?.latestQuote?.bp : undefined;
 
-    // Calls have no stop orders at the broker, so their protective exits are checked here every tick.
+    // Options have no stop orders at the broker, so their protective exits are checked here every tick.
+    // Underlying levels flip for bearish (put) trades: the stop is above the entry, the target below.
     let exit: ExitSignal | null = null;
-    if (isCall) {
+    if (opt) {
       const o = settings.options;
       const dte = pos.expiration ? daysUntil(pos.expiration) : Infinity;
       const ind = { price, ...(bid ? { bid } : {}), entry: pos.entryPrice, dte };
       if (dte <= o.closeAtDte) exit = { reason: "expiry_close", indicators: ind };
-      else if (pos.stopPrice && price <= pos.stopPrice) exit = { reason: "underlying_stop", indicators: { ...ind, stop: pos.stopPrice } };
-      else if (pos.takeProfitPrice && price >= pos.takeProfitPrice)
+      else if (pos.stopPrice && (bearish ? price >= pos.stopPrice : price <= pos.stopPrice))
+        exit = { reason: "underlying_stop", indicators: { ...ind, stop: pos.stopPrice } };
+      else if (pos.takeProfitPrice && (bearish ? price <= pos.takeProfitPrice : price >= pos.takeProfitPrice))
         exit = { reason: "underlying_target", indicators: { ...ind, target: pos.takeProfitPrice } };
       else if (bid && bid <= pos.entryPrice * (1 - o.premiumStopPct / 100)) exit = { reason: "premium_stop", indicators: ind };
       else if (bid && bid >= pos.entryPrice * (1 + o.premiumTargetPct / 100)) exit = { reason: "premium_target", indicators: ind };
@@ -289,14 +296,14 @@ async function runTick(result: TickResult, dryRun: boolean) {
       await closePosition(sym);
       const livePos = live.find((p) => p.symbol === sym);
       const qty = livePos ? livePos.qty : String(pos.qty);
-      const limit = isCall && bid ? optionTick(bid, "down") : undefined;
+      const limit = opt && bid ? optionTick(bid, "down") : undefined;
       const order = await alpaca.submitOrder({
         symbol: sym, qty, side: "sell", time_in_force: "day", client_order_id: clientId("x", def.id, pos.symbol),
         ...(limit ? { type: "limit", limit_price: limit.toFixed(2) } : { type: "market" }),
       });
       await db.update(positions).set({
         state: "closing", exitReason: exit.reason, exitSignalAt: new Date(),
-        exitSignalPrice: isCall ? (bid ?? null) : price, // same units as the fill, for slippage
+        exitSignalPrice: opt ? (bid ?? null) : price, // same units as the fill, for slippage
         exitIndicators: exit.indicators, exitOrderId: order.id,
       }).where(eq(positions.symbol, pos.symbol));
       await db.insert(signals).values({
@@ -328,7 +335,9 @@ async function runTick(result: TickResult, dryRun: boolean) {
   // ---- Candidates ----
   const held = new Set([...ours.map((p) => p.symbol), ...liveSymbols]);
   const raw: { strat: ActiveStrategy; symbol: string; bars: Bar[]; score: number; indicators: Record<string, number> }[] = [];
-  for (const strat of active.filter((a) => a.enabled)) {
+  // Bearish rules can only be expressed with puts, so they sit out in shares mode.
+  const useOptions = settings.instrument === "options";
+  for (const strat of active.filter((a) => a.enabled && (useOptions || a.def.direction === "bullish"))) {
     for (const symbol of scan) {
       const bars = barsBySymbol[symbol];
       if (held.has(symbol) || !bars || bars.length < 30) continue;
@@ -338,9 +347,13 @@ async function runTick(result: TickResult, dryRun: boolean) {
       if (sig) raw.push({ strat, symbol, bars, ...sig });
     }
   }
-  // One owner per symbol; strongest signal first.
+  // Skip symbols where bullish and bearish rules disagree; otherwise one owner per symbol, strongest signal first.
+  const directions = new Map<string, Set<string>>();
+  for (const c of raw) directions.set(c.symbol, (directions.get(c.symbol) ?? new Set()).add(c.strat.def.direction));
+  const conflicted = [...directions].filter(([, d]) => d.size > 1).map(([sym]) => sym);
+  if (conflicted.length) log.push(`conflicting signals, skipped: ${conflicted.join(", ")}`);
   raw.sort((a, b) => b.score - a.score);
-  const seen = new Set<string>();
+  const seen = new Set<string>(conflicted);
   const candidates = raw.filter((c) => (seen.has(c.symbol) ? false : (seen.add(c.symbol), true)));
   result.candidates = candidates.map((c) => ({
     symbol: c.symbol, strategy: c.strat.def.id, score: round(c.score), indicators: c.indicators,
@@ -399,19 +412,21 @@ async function runTick(result: TickResult, dryRun: boolean) {
     }
 
     const price = c.indicators.price;
-    const calls = settings.instrument === "calls";
-    let pick: CallPick | undefined;
+    let pick: OptionPick | undefined;
     let qty: number;
-    if (calls) {
-      const cached = noCallCache.get(c.symbol);
+    if (useOptions) {
+      const type = c.strat.def.direction === "bearish" ? "put" : "call";
+      const cacheKey = `${c.symbol}:${type}`;
+      const cached = noOptionCache.get(cacheKey);
       if (cached && Date.now() - cached.at < 30 * 60_000) {
         await record(c, "blocked", cached.reason);
         continue;
       }
       const budget = (equity * settings.options.premiumPct) / 100;
-      const r = await pickCall(c.symbol, price, settings.options, budget).catch((e) => `option_chain_error: ${String(e).slice(0, 200)}`);
+      const r = await pickOption(c.symbol, type, price, settings.options, budget)
+        .catch((e) => `option_chain_error: ${String(e).slice(0, 200)}`);
       if (typeof r === "string") {
-        if (!r.startsWith("option_chain_error")) noCallCache.set(c.symbol, { reason: r, at: Date.now() });
+        if (!r.startsWith("option_chain_error")) noOptionCache.set(cacheKey, { reason: r, at: Date.now() });
         await record(c, "blocked", r);
         continue;
       }
@@ -433,7 +448,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       }
     }
     const instrumentNote = pick
-      ? `Buying ${qty} x ${pick.contract} (${c.symbol} $${pick.strike} call, expires ${pick.expiration}, ${pick.dte} days, ` +
+      ? `Buying ${qty} x ${pick.contract} (${c.symbol} $${pick.strike} ${pick.type}, expires ${pick.expiration}, ${pick.dte} days, ` +
         `delta ${pick.delta.toFixed(2)}, IV ${pick.iv != null ? (pick.iv * 100).toFixed(0) + "%" : "n/a"}) for about ` +
         `$${round(qty * pick.ask * 100, 0)} of premium. Flag an earnings date or other binary event before expiration.`
       : undefined;
@@ -455,6 +470,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
           review = await reviewEntry({
             model: settings.agent.model, symbol: c.symbol, strategyName: c.strat.def.name,
             rules: c.strat.def.rules(c.strat.params), indicators: c.indicators, bars: c.bars, news, instrumentNote,
+            direction: c.strat.def.direction,
           });
           reviewsToday++;
         } catch (err) {
@@ -473,7 +489,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
     }
 
     // ---- Order ----
-    // Stop/target levels are on the underlying: broker-held bracket legs for shares, checked each tick for calls.
+    // Stop/target levels are on the underlying: broker-held bracket legs for shares, checked each tick for options.
     const legs = c.strat.def.bracket(price, c.strat.params);
     const optionParams = Object.fromEntries(Object.entries(settings.options).map(([k, v]) => [`opt_${k}`, v]));
     const claimed = await db
@@ -486,7 +502,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
         params: pick ? { ...c.strat.params, ...optionParams } : c.strat.params,
         review, equityAtEntry: equity, appVersion: appVersion(),
         ...(pick && {
-          instrument: "call", contract: pick.contract, multiplier: 100, strike: pick.strike, expiration: pick.expiration,
+          instrument: pick.type, contract: pick.contract, multiplier: 100, strike: pick.strike, expiration: pick.expiration,
           entryDelta: round(pick.delta, 3), entryIv: pick.iv, underlyingEntryPrice: price, highWater: price,
         }),
       })

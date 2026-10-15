@@ -15,9 +15,10 @@ const ReviewSchema = z.object({
 });
 
 const REVIEW_SYSTEM = `You are the risk reviewer for a rules-based swing-trading bot running on a paper account.
-A deterministic strategy has already produced a buy signal. Your job is NOT to second-guess the strategy's technical logic;
+A deterministic strategy has already produced a signal: bullish (buy shares or calls) or bearish (buy puts).
+Your job is NOT to second-guess the strategy's technical logic;
 it is to catch situations where the rule is likely firing on something the rule can't see:
-- the drop or spike is explained by news that changes the thesis (earnings miss, guidance cut, fraud, lawsuit, FDA rejection, downgrade cascade, M&A announcement pinning the price)
+- the drop or spike is explained by news that changes the thesis (earnings beat or miss, guidance change, fraud, lawsuit, FDA decision, upgrade or downgrade cascade, M&A announcement pinning the price)
 - earnings or another binary event is imminent (within ~2 trading days)
 - the data looks broken (gap from a split, halted stock, stale prices)
 Approve by default. Veto only with a concrete reason drawn from the inputs. Never invent news that isn't in the headlines.`;
@@ -30,7 +31,8 @@ export async function reviewEntry(input: {
   indicators: Record<string, number>;
   bars: Bar[];
   news: NewsItem[];
-  instrumentNote?: string; // e.g. the call contract being bought
+  instrumentNote?: string; // e.g. the option contract being bought
+  direction?: "bullish" | "bearish";
 }): Promise<Review> {
   const recent = input.bars.slice(-15).map((b) => `${b.t.slice(0, 10)} o${b.o} h${b.h} l${b.l} c${b.c} v${b.v}`).join("\n");
   const news = input.news.length
@@ -48,7 +50,7 @@ export async function reviewEntry(input: {
         content: `Strategy: ${input.strategyName}
 Rules: ${input.rules}
 
-Candidate: BUY ${input.symbol}${input.instrumentNote ? `\nInstrument: ${input.instrumentNote}` : ""}
+Candidate: ${input.direction === "bearish" ? `BEARISH on ${input.symbol} (expects the stock to fall)` : `BUY ${input.symbol}`}${input.instrumentNote ? `\nInstrument: ${input.instrumentNote}` : ""}
 Signal indicators: ${JSON.stringify(input.indicators)}
 
 Last 15 daily bars (the last one is today, in progress):

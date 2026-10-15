@@ -75,7 +75,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
               <td className={`${td} whitespace-nowrap`}>{time(t.closedAt)}</td>
               <td className={`${td} font-medium`}>
                 {t.symbol}
-                {t.instrument === "call" && <div className="text-xs font-normal text-muted">${t.strike} call · {t.expiration}</div>}
+                {t.contract && <div className="text-xs font-normal text-muted">${t.strike} {t.instrument} · {t.expiration}</div>}
                 {t.sector && <div className="text-xs font-normal text-muted">{t.sector}</div>}
               </td>
               <td className={td}>{STRATEGY_BY_ID[t.strategyId]?.name ?? t.strategyId}</td>

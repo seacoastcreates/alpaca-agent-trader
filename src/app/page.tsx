@@ -85,8 +85,8 @@ export default async function Dashboard() {
               <tr key={p.symbol}>
                 <td className={`${td} font-medium`}>
                   {p.symbol}
-                  {p.instrument === "call" && (
-                    <div className="text-xs font-normal text-muted">${p.strike} call · {p.expiration}</div>
+                  {p.contract && (
+                    <div className="text-xs font-normal text-muted">${p.strike} {p.instrument} · {p.expiration}</div>
                   )}
                 </td>
                 <td className={td}>
@@ -94,7 +94,7 @@ export default async function Dashboard() {
                   {p.sector && <div className="text-xs text-muted">{p.sector}</div>}
                 </td>
                 <td className={td}><Badge>{p.state}</Badge></td>
-                <td className={td}>{p.qty}{p.instrument === "call" && <span className="text-xs text-muted"> contracts</span>}</td>
+                <td className={td}>{p.qty}{p.contract && <span className="text-xs text-muted"> contracts</span>}</td>
                 <td className={td}>{p.entryPrice ? usd(p.entryPrice) : "–"}</td>
                 <td className={td}>{last ? usd(last) : "–"}</td>
                 <td className={`${td} ${plPct == null ? "" : plPct >= 0 ? "text-good" : "text-bad"}`}>
@@ -102,7 +102,7 @@ export default async function Dashboard() {
                 </td>
                 <td className={`${td} text-ink-2`}>
                   {p.stopPrice ? usd(p.stopPrice) : "–"} / {p.takeProfitPrice ? usd(p.takeProfitPrice) : "trail"}
-                  {p.instrument === "call" && <div className="text-xs text-muted">on {p.symbol}</div>}
+                  {p.contract && <div className="text-xs text-muted">on {p.symbol}</div>}
                 </td>
               </tr>
             );

@@ -3,6 +3,7 @@ import { num, type ExitSignal, type Strategy } from "./types";
 
 export const trendPullback: Strategy = {
   id: "trend_pullback",
+  direction: "bullish",
   name: "Trend + pullback",
   rules: (p) =>
     `Buy a stock in an uptrend (price above its ${p.trendLen}-day SMA) when RSI(${p.rsiLen}) dips below ${p.rsiEntry}. ` +

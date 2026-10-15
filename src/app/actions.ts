@@ -73,7 +73,7 @@ export async function resetStrategy(id: string) {
 
 const SettingsSchema = z.object({
   killSwitch: z.boolean(),
-  instrument: z.enum(["shares", "calls"]),
+  instrument: z.enum(["shares", "options"]),
   options: z.object({
     premiumPct: z.number().min(0.1).max(25),
     minDte: z.number().int().min(1).max(365),

@@ -8,16 +8,16 @@ const input = "num mt-1 block w-full rounded-md border border-line bg-bg px-2 py
 
 const OPTION_FIELDS: [keyof Settings["options"], string][] = [
   ["premiumPct", "Premium per trade (% of equity)"],
-  ["targetDelta", "Target delta"],
-  ["minDelta", "Min delta"],
-  ["maxDelta", "Max delta"],
+  ["targetDelta", "Target delta (absolute)"],
+  ["minDelta", "Min delta (absolute)"],
+  ["maxDelta", "Max delta (absolute)"],
   ["targetDte", "Target days to expiry"],
   ["minDte", "Min days to expiry"],
   ["maxDte", "Max days to expiry"],
   ["minOpenInterest", "Min open interest"],
   ["maxSpreadPct", "Max bid-ask spread (% of mid)"],
-  ["premiumStopPct", "Sell if call loses (%)"],
-  ["premiumTargetPct", "Sell if call gains (%)"],
+  ["premiumStopPct", "Sell if option loses (%)"],
+  ["premiumTargetPct", "Sell if option gains (%)"],
   ["closeAtDte", "Sell at days to expiry"],
   ["entryTimeoutMin", "Cancel unfilled buy after (min)"],
 ];
@@ -128,21 +128,24 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
       <section className="rounded-lg border border-line bg-panel p-4">
         <h2 className="text-sm font-semibold">What a buy signal buys</h2>
         <div className="mt-3 flex flex-wrap gap-4 text-sm">
-          {(["shares", "calls"] as const).map((k) => (
+          {(["shares", "options"] as const).map((k) => (
             <label key={k} className="flex items-center gap-2">
               <input type="radio" name="instrument" className="accent-[var(--accent)]" checked={s.instrument === k}
                 onChange={() => setS({ ...s, instrument: k })} />
-              {k === "shares" ? "Shares (with broker-held stop and target)" : "Call options"}
+              {k === "shares"
+                ? "Shares, bullish rules only (broker-held stop and target)"
+                : "Options: calls on bullish signals, puts on bearish signals"}
             </label>
           ))}
         </div>
-        {s.instrument === "calls" && (
+        {s.instrument === "options" && (
           <>
             <p className="mt-3 text-xs text-muted">
-              Each signal buys the call closest to the target delta and expiry that passes the liquidity filters, with a
-              limit order at the ask. Calls have no stop orders at the broker, so every minute the bot sells if the stock
-              hits the strategy&apos;s stop or target, the call hits the loss or gain limit, expiry gets close, or the
-              strategy&apos;s exit rule fires. Existing positions keep the instrument they were opened with.
+              Each signal buys the call (bullish) or put (bearish) closest to the target delta and expiry that passes the
+              liquidity filters, with a limit order at the ask. Options have no stop orders at the broker, so every minute
+              the bot sells if the stock hits the strategy&apos;s stop or target, the option hits the loss or gain limit,
+              expiry gets close, or the strategy&apos;s exit rule fires. Existing positions keep the instrument they were
+              opened with.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {OPTION_FIELDS.map(([k, label]) => (

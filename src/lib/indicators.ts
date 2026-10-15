@@ -34,6 +34,12 @@ export function priorHigh(bars: Bar[], len: number): number | null {
   return Math.max(...bars.slice(-len - 1, -1).map((b) => b.h));
 }
 
+/** Lowest low of the `len` bars before the last one. */
+export function priorLow(bars: Bar[], len: number): number | null {
+  if (bars.length < len + 1) return null;
+  return Math.min(...bars.slice(-len - 1, -1).map((b) => b.l));
+}
+
 /** Average volume of the `len` bars before the last one. */
 export function priorAvgVolume(bars: Bar[], len: number): number | null {
   if (bars.length < len + 1) return null;

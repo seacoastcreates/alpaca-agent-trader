@@ -11,7 +11,7 @@ export const appVersion = () => process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?
 
 const pct = (a: number, b: number) => round((a / b - 1) * 100, 3);
 
-/** Best/worst price while held, and sessions touched, from 5-minute bars (the option's own bars for calls). */
+/** Best/worst price while held, and sessions touched, from 5-minute bars (the option's own bars for options). */
 async function pathStats(symbol: string, from: Date, to: Date, isOption: boolean) {
   try {
     const start = new Date(from.getTime() - 5 * 60_000).toISOString();
@@ -41,30 +41,31 @@ export async function recordClosedTrade(pos: Position, exit: alpaca.Order) {
   const exitReason =
     pos.exitReason ?? (exit.type === "stop" ? "stop_loss" : exit.type === "limit" ? "take_profit" : "external");
 
-  const isCall = pos.instrument === "call";
+  const isOption = pos.instrument === "call" || pos.instrument === "put";
   const mult = pos.multiplier ?? 1;
   const [path, spyEntry, spyExit, underlyingExit] = await Promise.all([
-    pathStats(pos.contract ?? pos.symbol, openedAt, closedAt, isCall),
+    pathStats(pos.contract ?? pos.symbol, openedAt, closedAt, isOption),
     alpaca.priceAt("SPY", openedAt).catch(() => null),
     alpaca.priceAt("SPY", closedAt).catch(() => null),
-    isCall ? alpaca.priceAt(pos.symbol, closedAt).catch(() => null) : Promise.resolve(exitPrice),
+    isOption ? alpaca.priceAt(pos.symbol, closedAt).catch(() => null) : Promise.resolve(exitPrice),
   ]);
 
   const pnlPct = pct(exitPrice, entryPrice);
-  // Shares risk entry-to-stop; a call's planned risk is its premium stop.
+  // Shares risk entry-to-stop; an option's planned risk is its premium stop.
   const premiumStopPct = Number(pos.params?.opt_premiumStopPct ?? 0);
-  const riskPerShare = isCall
+  const riskPerShare = isOption
     ? premiumStopPct ? round((entryPrice * premiumStopPct) / 100, 4) : null
     : pos.stopPrice ? round(entryPrice - pos.stopPrice, 4) : null;
   const spyReturnPct = spyEntry && spyExit ? pct(spyExit, spyEntry) : null;
   const notional = round(entryPrice * pos.qty * mult);
-  const underlyingEntry = isCall ? pos.underlyingEntryPrice : entryPrice;
+  const underlyingEntry = isOption ? pos.underlyingEntryPrice : entryPrice;
   const r = pos.review;
 
   const values: typeof trades.$inferInsert = {
     symbol: pos.symbol,
     sector: pos.sector,
-    instrument: isCall ? "call" : "shares",
+    instrument: pos.instrument,
+    direction: STRATEGY_BY_ID[pos.strategyId]?.direction ?? null,
     contract: pos.contract,
     strike: pos.strike,
     expiration: pos.expiration,

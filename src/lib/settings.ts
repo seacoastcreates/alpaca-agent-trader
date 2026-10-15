@@ -4,7 +4,7 @@ import type { OptionsConfig } from "./options";
 
 export type Settings = {
   killSwitch: boolean; // blocks new entries; exits keep running
-  instrument: "shares" | "calls"; // what a buy signal buys
+  instrument: "shares" | "options"; // shares (bullish rules only) or options (calls on bullish, puts on bearish)
   options: OptionsConfig;
   watchlist: string[]; // pinned symbols, always scanned
   universe: {

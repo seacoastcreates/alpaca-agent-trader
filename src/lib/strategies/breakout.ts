@@ -3,6 +3,7 @@ import { num, type ExitSignal, type Strategy } from "./types";
 
 export const breakout: Strategy = {
   id: "breakout",
+  direction: "bullish",
   name: "Momentum breakout",
   rules: (p) =>
     `Buy when price breaks above its prior ${p.lookback}-day high on volume at least ${p.volMult}x the ${p.lookback}-day average ` +

@@ -61,8 +61,8 @@ export const signals = pgTable(
 // Entry context is captured here while the trade is open and copied into `trades` when it closes.
 export const positions = pgTable("positions", {
   symbol: text("symbol").primaryKey(), // underlying ticker (one position per underlying)
-  instrument: text("instrument").notNull().default("shares"), // shares | call
-  contract: text("contract"), // OCC option symbol; the order symbol for calls
+  instrument: text("instrument").notNull().default("shares"), // shares | call | put
+  contract: text("contract"), // OCC option symbol; the order symbol for options
   multiplier: integer("multiplier").notNull().default(1), // 100 for options
   strike: doublePrecision("strike"),
   expiration: text("expiration"),
@@ -103,7 +103,8 @@ export const trades = pgTable(
     symbol: text("symbol").notNull(),
     sector: text("sector"),
     side: text("side").notNull().default("long"),
-    instrument: text("instrument").notNull().default("shares"), // shares | call
+    instrument: text("instrument").notNull().default("shares"), // shares | call | put
+    direction: text("direction"), // bullish | bearish (the rule's view of the stock)
     contract: text("contract"),
     strike: doublePrecision("strike"),
     expiration: text("expiration"),
