@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { Badge, Card, Table, pct, td, usd } from "@/components/ui";
 import { db, signals, trades } from "@/lib/db";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
@@ -22,6 +23,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-5">
+      <AutoRefresh renderedAt={new Date().toISOString()} />
       <Card
         title="Signals and decisions"
         action={

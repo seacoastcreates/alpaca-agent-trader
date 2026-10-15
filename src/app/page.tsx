@@ -1,4 +1,5 @@
 import { desc } from "drizzle-orm";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { Controls } from "@/components/Controls";
 import { EquityChart } from "@/components/EquityChart";
 import { Badge, Card, Stat, Table, pct, td, tone, usd } from "@/components/ui";
@@ -52,6 +53,7 @@ export default async function Dashboard() {
 
   return (
     <div className="space-y-5">
+      <AutoRefresh renderedAt={new Date().toISOString()} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Equity" value={usd(equity)} sub={`Cash ${usd(Number(account.cash), 0)}`} />
         <Stat label="Today" value={usd(dayPnl)} sub={pct(dayPnlPct)} tone={tone(dayPnl)} />
