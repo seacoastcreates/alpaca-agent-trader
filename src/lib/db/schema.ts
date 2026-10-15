@@ -189,3 +189,10 @@ export const universe = pgTable("universe", {
   }>().notNull(),
   computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Account equity recorded on every market-hours tick (the same number as the dashboard tile), for the chart.
+export const equitySnapshots = pgTable("equity_snapshots", {
+  t: timestamp("t", { withTimezone: true }).primaryKey().defaultNow(),
+  equity: doublePrecision("equity").notNull(),
+  lastEquity: doublePrecision("last_equity"),
+});

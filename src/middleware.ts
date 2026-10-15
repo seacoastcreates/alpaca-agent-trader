@@ -10,6 +10,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Cron routes check CRON_SECRET themselves.
+  // Cron routes check CRON_SECRET themselves. These are prefix matches: a new route whose path starts with one of
+  // them (e.g. "api/tickets") would skip the login check, so keep new route names distinct.
   matcher: ["/((?!login|api/login|api/tick|api/cron|_next|favicon.ico).*)"],
 };

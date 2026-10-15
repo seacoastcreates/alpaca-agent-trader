@@ -82,14 +82,19 @@ export type NewOrder = {
 };
 export const submitOrder = (o: NewOrder) => trading<Order>("/v2/orders", { method: "POST", body: JSON.stringify(o) });
 
-export type PortfolioHistory = { timestamp: number[]; equity: (number | null)[]; profit_loss_pct: (number | null)[] };
-export const getPortfolioHistory = (period = "3M") =>
-  trading<PortfolioHistory>(`/v2/account/portfolio/history?period=${period}&timeframe=1D&intraday_reporting=market_hours`);
+export type PortfolioHistory = {
+  timestamp: number[]; equity: (number | null)[]; profit_loss_pct: (number | null)[]; base_value?: number;
+};
+export const getPortfolioHistory = (period = "3M", timeframe = "1D") =>
+  trading<PortfolioHistory>(
+    `/v2/account/portfolio/history?period=${period}&timeframe=${timeframe}&intraday_reporting=market_hours`,
+  );
 
 // ---- Market data ----
 
 export type Asset = { symbol: string; exchange: string; tradable: boolean; status: string; name: string };
 export const getAssets = () => trading<Asset[]>("/v2/assets?status=active&asset_class=us_equity");
+export const getAsset = (symbol: string) => trading<Asset>(`/v2/assets/${encodeURIComponent(symbol)}`);
 
 const chunk = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
 
@@ -253,9 +258,9 @@ export async function getOptionBars(contract: string, start: string, end: string
   return out;
 }
 
-export type NewsItem = { headline: string; summary: string; created_at: string; source: string };
-export async function getNews(symbol: string, sinceDays = 4): Promise<NewsItem[]> {
+export type NewsItem = { headline: string; summary: string; created_at: string; source: string; url?: string };
+export async function getNews(symbol: string, sinceDays = 4, limit = 10): Promise<NewsItem[]> {
   const start = new Date(Date.now() - sinceDays * 86400_000).toISOString();
-  const res = await data<{ news: NewsItem[] }>(`/v1beta1/news?symbols=${symbol}&limit=10&start=${start}`);
+  const res = await data<{ news: NewsItem[] }>(`/v1beta1/news?symbols=${symbol}&limit=${limit}&start=${start}`);
   return res.news ?? [];
 }

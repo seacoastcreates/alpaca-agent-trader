@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import * as alpaca from "./alpaca";
 import { reviewEntry } from "./agent";
-import { db, positions, runs, signals, strategies, trades, type Review } from "./db";
+import { db, equitySnapshots, positions, runs, signals, strategies, trades, type Review } from "./db";
 import { appVersion, recordClosedTrade } from "./trades";
 import { round, type Bar } from "./indicators";
 import { daysUntil, pickOption, type OptionPick } from "./options";
@@ -236,6 +236,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const dayPnlPct = lastEquity ? ((equity - lastEquity) / lastEquity) * 100 : 0;
   result.equity = equity;
   result.dayPnlPct = round(dayPnlPct);
+  if (!dryRun) await db.insert(equitySnapshots).values({ equity, lastEquity }).onConflictDoNothing();
 
   const [ours, live] = await Promise.all([db.select().from(positions), alpaca.getPositions()]);
   const liveSymbols = new Set(live.map((p) => p.symbol));

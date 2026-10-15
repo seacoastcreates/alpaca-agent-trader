@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { Ticker } from "@/components/Ticker";
 import { Badge, Card, Table, pct, td, usd } from "@/components/ui";
 import { db, signals, trades } from "@/lib/db";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
@@ -41,7 +42,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           {rows.map((s) => (
             <tr key={s.id}>
               <td className={`${td} whitespace-nowrap`}>{time(s.createdAt)}</td>
-              <td className={`${td} font-medium`}>{s.symbol}</td>
+              <td className={td}><Ticker symbol={s.symbol} /></td>
               <td className={td}>{STRATEGY_BY_ID[s.strategyId]?.name ?? s.strategyId}</td>
               <td className={td}>{s.kind === "entry" ? "buy" : "sell"}</td>
               <td className={td}>{usd(s.price)}</td>
@@ -75,8 +76,8 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           {closed.map((t) => (
             <tr key={t.id}>
               <td className={`${td} whitespace-nowrap`}>{time(t.closedAt)}</td>
-              <td className={`${td} font-medium`}>
-                {t.symbol}
+              <td className={td}>
+                <Ticker symbol={t.symbol} />
                 {t.contract && <div className="text-xs font-normal text-muted">${t.strike} {t.instrument} · {t.expiration}</div>}
                 {t.sector && <div className="text-xs font-normal text-muted">{t.sector}</div>}
               </td>

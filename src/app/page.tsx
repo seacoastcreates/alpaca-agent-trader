@@ -2,9 +2,11 @@ import { desc } from "drizzle-orm";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { Controls } from "@/components/Controls";
 import { EquityChart } from "@/components/EquityChart";
+import { Ticker } from "@/components/Ticker";
 import { Badge, Card, Stat, Table, pct, td, tone, usd } from "@/components/ui";
 import * as alpaca from "@/lib/alpaca";
 import { db, positions, runs } from "@/lib/db";
+import { equityHistory } from "@/lib/equity";
 import { getSettings } from "@/lib/settings";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
 
@@ -19,7 +21,7 @@ export default async function Dashboard() {
       alpaca.getClock(),
       alpaca.getPositions(),
       db.select().from(positions),
-      alpaca.getPortfolioHistory("3M").catch(() => null),
+      equityHistory("1D").catch(() => []),
       db.select().from(runs).orderBy(desc(runs.startedAt)).limit(8),
     ]);
   } catch (err) {
@@ -44,16 +46,13 @@ export default async function Dashboard() {
   const liveBySymbol = new Map(live.map((p) => [p.symbol, p]));
   const unmanaged = live.filter((p) => !ours.some((o) => (o.contract ?? o.symbol) === p.symbol));
 
-  const equityData =
-    history?.timestamp
-      .map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(5, 10), equity: history.equity[i] }))
-      .filter((p): p is { date: string; equity: number } => p.equity != null && p.equity > 0) ?? [];
+  const renderedAt = new Date().toISOString();
 
   const lastRun = recentRuns[0];
 
   return (
     <div className="space-y-5">
-      <AutoRefresh renderedAt={new Date().toISOString()} />
+      <AutoRefresh renderedAt={renderedAt} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Equity" value={usd(equity)} sub={`Cash ${usd(Number(account.cash), 0)}`} />
         <Stat label="Today" value={usd(dayPnl)} sub={pct(dayPnlPct)} tone={tone(dayPnl)} />
@@ -70,8 +69,8 @@ export default async function Dashboard() {
         <Controls killSwitch={settings.killSwitch} />
       </Card>
 
-      <Card title="Equity (3 months)">
-        <EquityChart data={equityData} />
+      <Card title="Equity">
+        <EquityChart initial={history} initialRange="1D" refreshKey={renderedAt} />
       </Card>
 
       <Card title="Bot positions">
@@ -86,7 +85,7 @@ export default async function Dashboard() {
             return (
               <tr key={p.symbol}>
                 <td className={`${td} font-medium`}>
-                  {p.symbol}
+                  <Ticker symbol={p.symbol} />
                   {p.contract && (
                     <div className="text-xs font-normal text-muted">${p.strike} {p.instrument} · {p.expiration}</div>
                   )}
