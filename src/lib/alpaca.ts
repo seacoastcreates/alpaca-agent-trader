@@ -3,6 +3,7 @@ import type { Bar } from "./indicators";
 const TRADING_URL = process.env.ALPACA_TRADING_URL ?? "https://paper-api.alpaca.markets";
 const DATA_URL = "https://data.alpaca.markets";
 const FEED = process.env.ALPACA_DATA_FEED ?? "iex";
+const OPTIONS_FEED = process.env.ALPACA_OPTIONS_FEED ?? "indicative"; // free plan; "opra" with a paid data plan
 
 // Hard guard: this app only ever talks to the paper trading API.
 function assertPaper() {
@@ -44,11 +45,11 @@ const data = <T>(path: string) => call<T>(DATA_URL, path);
 
 export type Clock = { timestamp: string; is_open: boolean; next_open: string; next_close: string };
 export type Account = {
-  equity: string; last_equity: string; cash: string; buying_power: string;
+  equity: string; last_equity: string; cash: string; buying_power: string; options_buying_power?: string;
   status: string; trading_blocked: boolean;
 };
 export type Position = {
-  symbol: string; qty: string; avg_entry_price: string; current_price: string;
+  symbol: string; asset_class?: string; qty: string; avg_entry_price: string; current_price: string;
   market_value: string; unrealized_pl: string; unrealized_plpc: string; change_today: string;
 };
 export type Order = {
@@ -73,7 +74,7 @@ export const getOrder = (id: string) => trading<Order>(`/v2/orders/${id}?nested=
 export const cancelOrder = (id: string) => trading<void>(`/v2/orders/${id}`, { method: "DELETE" });
 
 export type NewOrder = {
-  symbol: string; qty: string; side: "buy" | "sell"; type: "market";
+  symbol: string; qty: string; side: "buy" | "sell"; type: "market" | "limit"; limit_price?: string;
   time_in_force: "day" | "gtc"; client_order_id: string;
   order_class?: "simple" | "bracket" | "oto";
   take_profit?: { limit_price: string };
@@ -181,6 +182,68 @@ export async function priceAt(symbol: string, at: Date): Promise<number | null> 
   const q = new URLSearchParams({ timeframe: "1Min", start: at.toISOString(), end, limit: "1", feed: FEED });
   const res = await data<{ bars: Bar[] | null }>(`/v2/stocks/${symbol}/bars?${q}`);
   return res.bars?.[0]?.o ?? null;
+}
+
+// ---- Options ----
+
+export type OptionSnapshot = {
+  latestQuote?: { ap: number; bp: number; t: string };
+  latestTrade?: { p: number; t: string };
+  greeks?: { delta?: number; gamma?: number; theta?: number; vega?: number };
+  impliedVolatility?: number;
+};
+
+/** Snapshots (quote, greeks, IV) for an underlying's chain, filtered server-side. */
+export async function getOptionChain(underlying: string, filter: Record<string, string>): Promise<Record<string, OptionSnapshot>> {
+  const out: Record<string, OptionSnapshot> = {};
+  let pageToken: string | undefined;
+  do {
+    const q = new URLSearchParams({ feed: OPTIONS_FEED, limit: "1000", ...filter });
+    if (pageToken) q.set("page_token", pageToken);
+    const res = await data<{ snapshots: Record<string, OptionSnapshot>; next_page_token: string | null }>(
+      `/v1beta1/options/snapshots/${underlying}?${q}`,
+    );
+    Object.assign(out, res.snapshots ?? {});
+    pageToken = res.next_page_token ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
+export async function getOptionSnapshots(contracts: string[]): Promise<Record<string, OptionSnapshot>> {
+  if (!contracts.length) return {};
+  const results = await Promise.all(
+    chunk(contracts, 100).map((batch) =>
+      data<{ snapshots: Record<string, OptionSnapshot> }>(`/v1beta1/options/snapshots?symbols=${batch.join(",")}&feed=${OPTIONS_FEED}`),
+    ),
+  );
+  return Object.assign({}, ...results.map((r) => r.snapshots ?? {}));
+}
+
+export type OptionContract = { symbol: string; strike_price: string; expiration_date: string; open_interest: string | null; tradable: boolean };
+export async function getOptionContracts(filter: Record<string, string>): Promise<OptionContract[]> {
+  const out: OptionContract[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = new URLSearchParams({ limit: "10000", status: "active", ...filter });
+    if (pageToken) q.set("page_token", pageToken);
+    const res = await trading<{ option_contracts: OptionContract[]; next_page_token: string | null }>(`/v2/options/contracts?${q}`);
+    out.push(...(res.option_contracts ?? []));
+    pageToken = res.next_page_token ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
+export async function getOptionBars(contract: string, start: string, end: string, timeframe = "5Min"): Promise<Bar[]> {
+  const out: Bar[] = [];
+  let pageToken: string | undefined;
+  do {
+    const q = new URLSearchParams({ symbols: contract, timeframe, start, end, limit: "10000" });
+    if (pageToken) q.set("page_token", pageToken);
+    const res = await data<{ bars: Record<string, Bar[]>; next_page_token: string | null }>(`/v1beta1/options/bars?${q}`);
+    out.push(...(res.bars?.[contract] ?? []));
+    pageToken = res.next_page_token ?? undefined;
+  } while (pageToken);
+  return out;
 }
 
 export type NewsItem = { headline: string; summary: string; created_at: string; source: string };

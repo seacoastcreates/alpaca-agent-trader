@@ -60,7 +60,15 @@ export const signals = pgTable(
 // Positions the bot owns. Anything else in the Alpaca account is left alone.
 // Entry context is captured here while the trade is open and copied into `trades` when it closes.
 export const positions = pgTable("positions", {
-  symbol: text("symbol").primaryKey(),
+  symbol: text("symbol").primaryKey(), // underlying ticker (one position per underlying)
+  instrument: text("instrument").notNull().default("shares"), // shares | call
+  contract: text("contract"), // OCC option symbol; the order symbol for calls
+  multiplier: integer("multiplier").notNull().default(1), // 100 for options
+  strike: doublePrecision("strike"),
+  expiration: text("expiration"),
+  entryDelta: doublePrecision("entry_delta"),
+  entryIv: doublePrecision("entry_iv"),
+  underlyingEntryPrice: doublePrecision("underlying_entry_price"),
   strategyId: text("strategy_id").notNull(),
   sector: text("sector"),
   state: text("state").notNull(), // pending | open | closing
@@ -70,7 +78,7 @@ export const positions = pgTable("positions", {
   entryFilledAt: timestamp("entry_filled_at", { withTimezone: true }),
   stopPrice: doublePrecision("stop_price"),
   takeProfitPrice: doublePrecision("take_profit_price"),
-  highWater: doublePrecision("high_water"),
+  highWater: doublePrecision("high_water"), // highest underlying price since entry
   signalId: integer("signal_id"),
   signalAt: timestamp("signal_at", { withTimezone: true }),
   signalPrice: doublePrecision("signal_price"),
@@ -95,13 +103,24 @@ export const trades = pgTable(
     symbol: text("symbol").notNull(),
     sector: text("sector"),
     side: text("side").notNull().default("long"),
+    instrument: text("instrument").notNull().default("shares"), // shares | call
+    contract: text("contract"),
+    strike: doublePrecision("strike"),
+    expiration: text("expiration"),
+    dteAtEntry: integer("dte_at_entry"),
+    multiplier: integer("multiplier").notNull().default(1),
+    entryDelta: doublePrecision("entry_delta"),
+    entryIv: doublePrecision("entry_iv"),
+    underlyingEntryPrice: doublePrecision("underlying_entry_price"),
+    underlyingExitPrice: doublePrecision("underlying_exit_price"),
+    underlyingReturnPct: doublePrecision("underlying_return_pct"), // the stock's move over the same hold
     // Rule
     strategyId: text("strategy_id").notNull(),
     strategyName: text("strategy_name"),
     params: jsonb("params").$type<Record<string, number | boolean>>(), // strategy parameters at entry
     appVersion: text("app_version"), // git commit that placed the trade
     // Size
-    qty: doublePrecision("qty").notNull(),
+    qty: doublePrecision("qty").notNull(), // shares, or contracts for calls
     entryNotional: doublePrecision("entry_notional"),
     equityAtEntry: doublePrecision("equity_at_entry"),
     positionPct: doublePrecision("position_pct"), // entry notional as % of equity

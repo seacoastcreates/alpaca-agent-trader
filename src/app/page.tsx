@@ -41,7 +41,7 @@ export default async function Dashboard() {
   const dayPnlPct = lastEquity ? (dayPnl / lastEquity) * 100 : 0;
   const halted = dayPnlPct <= -settings.risk.dailyLossLimitPct;
   const liveBySymbol = new Map(live.map((p) => [p.symbol, p]));
-  const unmanaged = live.filter((p) => !ours.some((o) => o.symbol === p.symbol));
+  const unmanaged = live.filter((p) => !ours.some((o) => (o.contract ?? o.symbol) === p.symbol));
 
   const equityData =
     history?.timestamp
@@ -78,18 +78,23 @@ export default async function Dashboard() {
           empty={ours.length ? undefined : "No positions yet. Entries happen when a rule fires inside the entry window."}
         >
           {ours.map((p) => {
-            const lp = liveBySymbol.get(p.symbol);
+            const lp = liveBySymbol.get(p.contract ?? p.symbol);
             const last = lp ? Number(lp.current_price) : null;
             const plPct = lp ? Number(lp.unrealized_plpc) * 100 : null;
             return (
               <tr key={p.symbol}>
-                <td className={`${td} font-medium`}>{p.symbol}</td>
+                <td className={`${td} font-medium`}>
+                  {p.symbol}
+                  {p.instrument === "call" && (
+                    <div className="text-xs font-normal text-muted">${p.strike} call · {p.expiration}</div>
+                  )}
+                </td>
                 <td className={td}>
                   {STRATEGY_BY_ID[p.strategyId]?.name ?? p.strategyId}
                   {p.sector && <div className="text-xs text-muted">{p.sector}</div>}
                 </td>
                 <td className={td}><Badge>{p.state}</Badge></td>
-                <td className={td}>{p.qty}</td>
+                <td className={td}>{p.qty}{p.instrument === "call" && <span className="text-xs text-muted"> contracts</span>}</td>
                 <td className={td}>{p.entryPrice ? usd(p.entryPrice) : "–"}</td>
                 <td className={td}>{last ? usd(last) : "–"}</td>
                 <td className={`${td} ${plPct == null ? "" : plPct >= 0 ? "text-good" : "text-bad"}`}>
@@ -97,6 +102,7 @@ export default async function Dashboard() {
                 </td>
                 <td className={`${td} text-ink-2`}>
                   {p.stopPrice ? usd(p.stopPrice) : "–"} / {p.takeProfitPrice ? usd(p.takeProfitPrice) : "trail"}
+                  {p.instrument === "call" && <div className="text-xs text-muted">on {p.symbol}</div>}
                 </td>
               </tr>
             );

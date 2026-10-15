@@ -4,7 +4,9 @@ import { reviewEntry } from "./agent";
 import { db, positions, runs, signals, strategies, trades, type Review } from "./db";
 import { appVersion, recordClosedTrade } from "./trades";
 import { round, type Bar } from "./indicators";
-import { getSettings } from "./settings";
+import { daysUntil, pickCall, type CallPick } from "./options";
+import { getSettings, type Settings } from "./settings";
+import type { ExitSignal } from "./strategies/types";
 import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strategies";
 import { etDay, etMinutes, hhmmToMinutes } from "./time";
 import { sectorOf } from "./sectors";
@@ -35,48 +37,81 @@ const clientId = (kind: "e" | "x", strategyId: string, symbol: string) =>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+type Position = typeof positions.$inferSelect;
+/** What gets traded at Alpaca: the option contract for calls, the ticker for shares. */
+const orderSymbol = (p: Position) => p.contract ?? p.symbol;
+
+// Option prices trade in $0.05 steps at $3 and above, $0.01 below (penny-pilot names allow pennies throughout,
+// so these are always valid). Buys round up, sells round down, so the limit stays marketable.
+function optionTick(price: number, dir: "up" | "down") {
+  const tick = price >= 3 ? 0.05 : 0.01;
+  const n = price / tick;
+  return round((dir === "up" ? Math.ceil(n - 1e-9) : Math.floor(n + 1e-9)) * tick);
+}
+
+// Underlyings with no usable calls are re-checked at most every 30 minutes.
+const noCallCache = new Map<string, { reason: string; at: number }>();
+
 // ---------------------------------------------------------------------------
 // Sync: reconcile our positions table with what actually happened at Alpaca
 // ---------------------------------------------------------------------------
 
-async function syncPositions(log: string[]) {
+async function syncPositions(log: string[], settings: Settings) {
   const [ours, live] = await Promise.all([db.select().from(positions), alpaca.getPositions()]);
   const liveBySymbol = new Map(live.map((p) => [p.symbol, p]));
 
   for (const pos of ours) {
-    const livePos = liveBySymbol.get(pos.symbol);
+    const sym = orderSymbol(pos);
+    const livePos = liveBySymbol.get(sym);
 
     if (pos.state === "pending") {
       const order = await alpaca.getOrder(pos.entryOrderId).catch(() => null);
       const filledQty = Number(order?.filled_qty ?? 0);
       if (order && (order.status === "filled" || (livePos && filledQty > 0))) {
         const entryPrice = Number(order.filled_avg_price);
+        if (["new", "accepted", "partially_filled"].includes(order.status)) await alpaca.cancelOrder(order.id).catch(() => undefined);
         await db
           .update(positions)
           .set({
-            state: "open", qty: filledQty, entryPrice, highWater: entryPrice,
+            state: "open", qty: filledQty, entryPrice,
+            highWater: pos.instrument === "call" ? pos.underlyingEntryPrice : entryPrice,
             entryFilledAt: order.filled_at ? new Date(order.filled_at) : new Date(),
           })
           .where(eq(positions.symbol, pos.symbol));
-        log.push(`filled ${pos.symbol} x${filledQty} @ ${entryPrice}`);
+        log.push(`filled ${sym} x${filledQty} @ ${entryPrice}`);
       } else if (!order || ["canceled", "expired", "rejected"].includes(order.status)) {
         await db.delete(positions).where(eq(positions.symbol, pos.symbol));
-        log.push(`entry for ${pos.symbol} ${order?.status ?? "missing"}, dropped`);
+        log.push(`entry for ${sym} ${order?.status ?? "missing"}, dropped`);
+      } else if (
+        pos.instrument === "call" && pos.signalAt &&
+        Date.now() - pos.signalAt.getTime() > settings.options.entryTimeoutMin * 60_000
+      ) {
+        // Don't chase: an unfilled limit buy is cancelled and dropped on the next sync.
+        await alpaca.cancelOrder(order.id).catch(() => undefined);
+        log.push(`entry for ${sym} unfilled after ${settings.options.entryTimeoutMin} min, cancelling`);
       }
       continue;
     }
 
     if (livePos) {
-      // An exit order that got rejected/cancelled leaves us stuck in "closing"; hand it back to the exit rules.
-      if (pos.state === "closing" && !(await alpaca.getOrders({ status: "open", symbols: [pos.symbol] })).length) {
-        await db.update(positions).set({ state: "open", exitReason: null }).where(eq(positions.symbol, pos.symbol));
-        log.push(`${pos.symbol} exit order did not complete; reopened`);
+      if (pos.state === "closing") {
+        const open = await alpaca.getOrders({ status: "open", symbols: [sym] });
+        if (!open.length) {
+          // An exit order that got rejected/cancelled leaves us stuck in "closing"; hand it back to the exit rules,
+          // which re-submit at a fresh price if the exit condition still holds.
+          await db.update(positions).set({ state: "open", exitReason: null }).where(eq(positions.symbol, pos.symbol));
+          log.push(`${sym} exit order did not complete; reopened`);
+        } else if (pos.instrument === "call" && pos.exitSignalAt && Date.now() - pos.exitSignalAt.getTime() > 2 * 60_000) {
+          // Limit sell at the bid hasn't filled: cancel so the next tick re-prices it.
+          await Promise.all(open.map((o) => alpaca.cancelOrder(o.id).catch(() => undefined)));
+          log.push(`${sym} exit unfilled after 2 min, re-pricing`);
+        }
       }
       continue;
     }
 
     // Position is gone: find the sell that closed it (our exit, or a bracket leg).
-    const orders = await alpaca.getOrders({ status: "closed", after: pos.openedAt.toISOString(), symbols: [pos.symbol] });
+    const orders = await alpaca.getOrders({ status: "closed", after: pos.openedAt.toISOString(), symbols: [sym] });
     const sells = orders
       .flatMap((o) => [o, ...(o.legs ?? [])])
       .filter((o) => o.side === "sell" && o.status === "filled" && o.filled_at)
@@ -84,9 +119,9 @@ async function syncPositions(log: string[]) {
     const exit = sells[0];
     if (exit && pos.entryPrice) {
       const { exitReason, pnlPct } = await recordClosedTrade(pos, exit);
-      log.push(`closed ${pos.symbol} (${exitReason}) ${pnlPct}%`);
+      log.push(`closed ${sym} (${exitReason}) ${pnlPct}%`);
     } else {
-      log.push(`${pos.symbol} disappeared without a matching fill; removed`);
+      log.push(`${sym} disappeared without a matching fill; removed`);
     }
     await db.delete(positions).where(eq(positions.symbol, pos.symbol));
   }
@@ -186,7 +221,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const active = await loadStrategies();
   const clock = await alpaca.getClock();
 
-  if (!dryRun) await syncPositions(log);
+  if (!dryRun) await syncPositions(log, settings);
 
   if (!clock.is_open && !dryRun) {
     result.status = "market_closed";
@@ -208,6 +243,10 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const barsBySymbol = await alpaca.getDailyBars(symbols);
   const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
 
+  // Current quotes for held calls (one request), used by the premium stop/target.
+  const callContracts = ours.filter((p) => p.instrument === "call" && p.contract).map((p) => p.contract!);
+  const optionQuotes = await alpaca.getOptionSnapshots(callContracts).catch(() => ({} as Record<string, alpaca.OptionSnapshot>));
+
   // ---- Exits (run for every strategy, even disabled ones, so nothing is orphaned) ----
   for (const pos of ours) {
     if (pos.state !== "open" || !pos.entryPrice) continue;
@@ -215,30 +254,49 @@ async function runTick(result: TickResult, dryRun: boolean) {
     const bars = barsBySymbol[pos.symbol];
     if (!def || !bars?.length) continue;
     const params = active.find((a) => a.def.id === def.id)!.params;
-    const price = bars.at(-1)!.c;
-    const highWater = Math.max(pos.highWater ?? pos.entryPrice, price);
+    const isCall = pos.instrument === "call";
+    const price = bars.at(-1)!.c; // underlying
+    const underlyingEntry = isCall ? (pos.underlyingEntryPrice ?? price) : pos.entryPrice;
+    const highWater = Math.max(pos.highWater ?? underlyingEntry, price);
     if (!dryRun && highWater !== pos.highWater) {
       await db.update(positions).set({ highWater }).where(eq(positions.symbol, pos.symbol));
     }
     const entryDay = etDay(pos.openedAt);
     const daysHeld = bars.filter((b) => b.t.slice(0, 10) > entryDay).length;
-    if (daysHeld === 0) continue; // only the protective stops act on the entry day
+    const bid = isCall ? optionQuotes[pos.contract!]?.latestQuote?.bp : undefined;
 
-    const exit = def.exit({ bars, params, entryPrice: pos.entryPrice, highWater, daysHeld });
+    // Calls have no stop orders at the broker, so their protective exits are checked here every tick.
+    let exit: ExitSignal | null = null;
+    if (isCall) {
+      const o = settings.options;
+      const dte = pos.expiration ? daysUntil(pos.expiration) : Infinity;
+      const ind = { price, ...(bid ? { bid } : {}), entry: pos.entryPrice, dte };
+      if (dte <= o.closeAtDte) exit = { reason: "expiry_close", indicators: ind };
+      else if (pos.stopPrice && price <= pos.stopPrice) exit = { reason: "underlying_stop", indicators: { ...ind, stop: pos.stopPrice } };
+      else if (pos.takeProfitPrice && price >= pos.takeProfitPrice)
+        exit = { reason: "underlying_target", indicators: { ...ind, target: pos.takeProfitPrice } };
+      else if (bid && bid <= pos.entryPrice * (1 - o.premiumStopPct / 100)) exit = { reason: "premium_stop", indicators: ind };
+      else if (bid && bid >= pos.entryPrice * (1 + o.premiumTargetPct / 100)) exit = { reason: "premium_target", indicators: ind };
+    }
+    // Strategy exit rules wait a day; on the entry day only the protective exits act.
+    if (!exit && daysHeld > 0) exit = def.exit({ bars, params, entryPrice: underlyingEntry, highWater, daysHeld });
     if (!exit) continue;
-    result.exits.push(`${pos.symbol} (${def.id}): ${exit.reason}`);
+    result.exits.push(`${orderSymbol(pos)} (${def.id}): ${exit.reason}`);
     if (dryRun) continue;
 
     try {
-      await closePosition(pos.symbol);
-      const livePos = live.find((p) => p.symbol === pos.symbol);
+      const sym = orderSymbol(pos);
+      await closePosition(sym);
+      const livePos = live.find((p) => p.symbol === sym);
       const qty = livePos ? livePos.qty : String(pos.qty);
+      const limit = isCall && bid ? optionTick(bid, "down") : undefined;
       const order = await alpaca.submitOrder({
-        symbol: pos.symbol, qty, side: "sell", type: "market", time_in_force: "day",
-        client_order_id: clientId("x", def.id, pos.symbol),
+        symbol: sym, qty, side: "sell", time_in_force: "day", client_order_id: clientId("x", def.id, pos.symbol),
+        ...(limit ? { type: "limit", limit_price: limit.toFixed(2) } : { type: "market" }),
       });
       await db.update(positions).set({
-        state: "closing", exitReason: exit.reason, exitSignalAt: new Date(), exitSignalPrice: price,
+        state: "closing", exitReason: exit.reason, exitSignalAt: new Date(),
+        exitSignalPrice: isCall ? (bid ?? null) : price, // same units as the fill, for slippage
         exitIndicators: exit.indicators, exitOrderId: order.id,
       }).where(eq(positions.symbol, pos.symbol));
       await db.insert(signals).values({
@@ -341,15 +399,44 @@ async function runTick(result: TickResult, dryRun: boolean) {
     }
 
     const price = c.indicators.price;
-    const qty = Math.floor((equity * settings.risk.maxPositionPct) / 100 / price);
-    if (qty < 1) {
-      await record(c, "blocked", "position_too_small");
-      continue;
+    const calls = settings.instrument === "calls";
+    let pick: CallPick | undefined;
+    let qty: number;
+    if (calls) {
+      const cached = noCallCache.get(c.symbol);
+      if (cached && Date.now() - cached.at < 30 * 60_000) {
+        await record(c, "blocked", cached.reason);
+        continue;
+      }
+      const budget = (equity * settings.options.premiumPct) / 100;
+      const r = await pickCall(c.symbol, price, settings.options, budget).catch((e) => `option_chain_error: ${String(e).slice(0, 200)}`);
+      if (typeof r === "string") {
+        if (!r.startsWith("option_chain_error")) noCallCache.set(c.symbol, { reason: r, at: Date.now() });
+        await record(c, "blocked", r);
+        continue;
+      }
+      pick = r;
+      qty = Math.floor(budget / (r.ask * 100));
+      if (qty * r.ask * 100 > Number(account.options_buying_power ?? account.buying_power)) {
+        await record(c, "blocked", "insufficient_options_buying_power");
+        continue;
+      }
+    } else {
+      qty = Math.floor((equity * settings.risk.maxPositionPct) / 100 / price);
+      if (qty < 1) {
+        await record(c, "blocked", "position_too_small");
+        continue;
+      }
+      if (qty * price > Number(account.buying_power)) {
+        await record(c, "blocked", "insufficient_buying_power");
+        continue;
+      }
     }
-    if (qty * price > Number(account.buying_power)) {
-      await record(c, "blocked", "insufficient_buying_power");
-      continue;
-    }
+    const instrumentNote = pick
+      ? `Buying ${qty} x ${pick.contract} (${c.symbol} $${pick.strike} call, expires ${pick.expiration}, ${pick.dte} days, ` +
+        `delta ${pick.delta.toFixed(2)}, IV ${pick.iv != null ? (pick.iv * 100).toFixed(0) + "%" : "n/a"}) for about ` +
+        `$${round(qty * pick.ask * 100, 0)} of premium. Flag an earnings date or other binary event before expiration.`
+      : undefined;
 
     // ---- Claude review ----
     let review: Review | undefined;
@@ -367,7 +454,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
           const news = await alpaca.getNews(c.symbol).catch(() => []);
           review = await reviewEntry({
             model: settings.agent.model, symbol: c.symbol, strategyName: c.strat.def.name,
-            rules: c.strat.def.rules(c.strat.params), indicators: c.indicators, bars: c.bars, news,
+            rules: c.strat.def.rules(c.strat.params), indicators: c.indicators, bars: c.bars, news, instrumentNote,
           });
           reviewsToday++;
         } catch (err) {
@@ -386,30 +473,44 @@ async function runTick(result: TickResult, dryRun: boolean) {
     }
 
     // ---- Order ----
+    // Stop/target levels are on the underlying: broker-held bracket legs for shares, checked each tick for calls.
     const legs = c.strat.def.bracket(price, c.strat.params);
+    const optionParams = Object.fromEntries(Object.entries(settings.options).map(([k, v]) => [`opt_${k}`, v]));
     const claimed = await db
       .insert(positions)
       .values({
         symbol: c.symbol, strategyId: sid, sector, state: "pending", qty, entryOrderId: "pending",
         stopPrice: round(legs.stopPrice), takeProfitPrice: legs.takeProfitPrice ? round(legs.takeProfitPrice) : null,
-        signalAt: new Date(), signalPrice: price, entryIndicators: c.indicators, params: c.strat.params,
+        signalAt: new Date(), signalPrice: pick ? pick.ask : price,
+        entryIndicators: pick ? { ...c.indicators, bid: pick.bid, ask: pick.ask, delta: round(pick.delta, 3) } : c.indicators,
+        params: pick ? { ...c.strat.params, ...optionParams } : c.strat.params,
         review, equityAtEntry: equity, appVersion: appVersion(),
+        ...(pick && {
+          instrument: "call", contract: pick.contract, multiplier: 100, strike: pick.strike, expiration: pick.expiration,
+          entryDelta: round(pick.delta, 3), entryIv: pick.iv, underlyingEntryPrice: price, highWater: price,
+        }),
       })
       .onConflictDoNothing()
       .returning();
     if (!claimed.length) continue; // another run grabbed it
 
     try {
-      const order = await alpaca.submitOrder({
-        symbol: c.symbol, qty: String(qty), side: "buy", type: "market", time_in_force: "gtc",
-        client_order_id: clientId("e", sid, c.symbol),
-        order_class: legs.takeProfitPrice ? "bracket" : "oto",
-        stop_loss: { stop_price: round(legs.stopPrice).toFixed(2) },
-        ...(legs.takeProfitPrice ? { take_profit: { limit_price: round(legs.takeProfitPrice).toFixed(2) } } : {}),
-      });
+      const order = pick
+        ? await alpaca.submitOrder({
+            symbol: pick.contract, qty: String(qty), side: "buy", type: "limit",
+            limit_price: optionTick(pick.ask, "up").toFixed(2), time_in_force: "day",
+            client_order_id: clientId("e", sid, c.symbol),
+          })
+        : await alpaca.submitOrder({
+            symbol: c.symbol, qty: String(qty), side: "buy", type: "market", time_in_force: "gtc",
+            client_order_id: clientId("e", sid, c.symbol),
+            order_class: legs.takeProfitPrice ? "bracket" : "oto",
+            stop_loss: { stop_price: round(legs.stopPrice).toFixed(2) },
+            ...(legs.takeProfitPrice ? { take_profit: { limit_price: round(legs.takeProfitPrice).toFixed(2) } } : {}),
+          });
       const sig = await record(c, "ordered", review ? `reviewer: ${review.reason}` : null, review, order.id);
       await db.update(positions).set({ entryOrderId: order.id, signalId: sig?.id }).where(eq(positions.symbol, c.symbol));
-      result.entries.push(`${c.symbol} x${qty} (${sid})`);
+      result.entries.push(`${pick ? pick.contract : c.symbol} x${qty} (${sid})`);
       openCount++;
       entriesToday++;
       perStrategy.set(sid, (perStrategy.get(sid) ?? 0) + 1);
@@ -428,18 +529,19 @@ export async function flattenAll(): Promise<string[]> {
   const live = await alpaca.getPositions();
   const done: string[] = [];
   for (const pos of ours) {
-    await closePosition(pos.symbol);
-    const livePos = live.find((p) => p.symbol === pos.symbol);
+    const sym = orderSymbol(pos);
+    await closePosition(sym);
+    const livePos = live.find((p) => p.symbol === sym);
     if (!livePos) continue; // pending entry: cancelling it was enough
     const order = await alpaca.submitOrder({
-      symbol: pos.symbol, qty: livePos.qty, side: "sell", type: "market", time_in_force: "day",
+      symbol: sym, qty: livePos.qty, side: "sell", type: "market", time_in_force: "day",
       client_order_id: clientId("x", pos.strategyId, pos.symbol),
     });
     await db.update(positions).set({
       state: "closing", exitReason: "manual_flatten", exitSignalAt: new Date(),
       exitSignalPrice: Number(livePos.current_price), exitOrderId: order.id,
     }).where(eq(positions.symbol, pos.symbol));
-    done.push(pos.symbol);
+    done.push(sym);
   }
   return done;
 }

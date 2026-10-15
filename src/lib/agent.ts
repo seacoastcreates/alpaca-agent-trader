@@ -30,6 +30,7 @@ export async function reviewEntry(input: {
   indicators: Record<string, number>;
   bars: Bar[];
   news: NewsItem[];
+  instrumentNote?: string; // e.g. the call contract being bought
 }): Promise<Review> {
   const recent = input.bars.slice(-15).map((b) => `${b.t.slice(0, 10)} o${b.o} h${b.h} l${b.l} c${b.c} v${b.v}`).join("\n");
   const news = input.news.length
@@ -47,7 +48,7 @@ export async function reviewEntry(input: {
         content: `Strategy: ${input.strategyName}
 Rules: ${input.rules}
 
-Candidate: BUY ${input.symbol}
+Candidate: BUY ${input.symbol}${input.instrumentNote ? `\nInstrument: ${input.instrumentNote}` : ""}
 Signal indicators: ${JSON.stringify(input.indicators)}
 
 Last 15 daily bars (the last one is today, in progress):

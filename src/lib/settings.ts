@@ -1,8 +1,11 @@
 import { eq } from "drizzle-orm";
 import { db, settings as settingsTable } from "./db";
+import type { OptionsConfig } from "./options";
 
 export type Settings = {
   killSwitch: boolean; // blocks new entries; exits keep running
+  instrument: "shares" | "calls"; // what a buy signal buys
+  options: OptionsConfig;
   watchlist: string[]; // pinned symbols, always scanned
   universe: {
     enabled: boolean; // also scan the auto-ranked most-active stocks
@@ -33,6 +36,11 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   killSwitch: false,
+  instrument: "shares",
+  options: {
+    premiumPct: 5, minDte: 30, maxDte: 60, targetDte: 45, minDelta: 0.55, maxDelta: 0.8, targetDelta: 0.65,
+    minOpenInterest: 100, maxSpreadPct: 10, premiumStopPct: 50, premiumTargetPct: 100, closeAtDte: 10, entryTimeoutMin: 10,
+  },
   watchlist: [
     "SPY", "QQQ", "IWM", "XLF", "XLE", "XLV", "XLK",
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "AMD",
@@ -69,6 +77,7 @@ export async function getSettings(): Promise<Settings> {
     ...DEFAULT_SETTINGS,
     ...d,
     universe: { ...DEFAULT_SETTINGS.universe, ...d.universe },
+    options: { ...DEFAULT_SETTINGS.options, ...d.options },
     risk: { ...DEFAULT_SETTINGS.risk, ...d.risk },
     agent: { ...DEFAULT_SETTINGS.agent, ...d.agent },
   };

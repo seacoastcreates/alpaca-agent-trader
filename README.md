@@ -10,6 +10,11 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
   re-ranked weekly before the open, plus a pinned list that is always scanned. Single-stock ETFs (e.g.
   "Daily TSLA Bull 2X") are excluded: a stock ticker in the name plus a leveraged/inverse/income cue.
   Completed daily bars are cached in memory per day, so each 1-minute tick only fetches snapshots.
+- **Calls** (Settings -> What a buy signal buys): each signal buys the call nearest delta 0.65 and ~45 days to
+  expiry that passes open-interest and spread filters and fits the premium budget (default 5% of equity), with a
+  limit order at the ask (cancelled if unfilled after 10 min). Calls have no broker-held stops, so every tick sells
+  on the strategy's stop/target level on the stock, -50% / +100% on the premium, 10 days to expiry, or the
+  strategy's exit rule (limit at the bid, re-priced every 2 min). Option quotes use Alpaca's free indicative feed.
 - **Risk rules** (global, Claude can't override): position size % of equity, max open positions, max per strategy,
   max per sector (Nasdaq screener sectors, stored with the universe; pinned ETFs mapped by hand),
   max new entries per day, daily loss halt, min price, re-entry cooldown, entry time window, kill switch.
@@ -75,6 +80,7 @@ Every completed round trip is one row in the `trades` table (Neon Postgres). Dow
 | Exit | `exit_reason`, `exit_signal_at` / `exit_signal_price`, `closed_at` / `exit_price` (sell fill), `exit_order_type`, `exit_slippage_pct`, `exit_indicators` |
 | Result | `pnl`, `pnl_pct`, `r_multiple`, `hold_minutes`, `hold_sessions`, `mfe_pct` / `mae_pct` (best / worst while held) |
 | Benchmark | `spy_entry_price`, `spy_exit_price`, `spy_return_pct`, `excess_return_pct` |
+| Calls | `instrument`, `contract`, `strike`, `expiration`, `dte_at_entry`, `multiplier`, `entry_delta`, `entry_iv`, `underlying_entry_price` / `underlying_exit_price` / `underlying_return_pct` |
 | Claude | `review_decision`, `review_confidence`, `review_reason`, `review_model`, `review` |
 
 Every decision that did *not* become a trade (blocked by a risk rule, vetoed by Claude) is in `signals`

@@ -6,8 +6,24 @@ import type { Settings } from "@/lib/settings";
 
 const input = "num mt-1 block w-full rounded-md border border-line bg-bg px-2 py-1.5 text-sm";
 
+const OPTION_FIELDS: [keyof Settings["options"], string][] = [
+  ["premiumPct", "Premium per trade (% of equity)"],
+  ["targetDelta", "Target delta"],
+  ["minDelta", "Min delta"],
+  ["maxDelta", "Max delta"],
+  ["targetDte", "Target days to expiry"],
+  ["minDte", "Min days to expiry"],
+  ["maxDte", "Max days to expiry"],
+  ["minOpenInterest", "Min open interest"],
+  ["maxSpreadPct", "Max bid-ask spread (% of mid)"],
+  ["premiumStopPct", "Sell if call loses (%)"],
+  ["premiumTargetPct", "Sell if call gains (%)"],
+  ["closeAtDte", "Sell at days to expiry"],
+  ["entryTimeoutMin", "Cancel unfilled buy after (min)"],
+];
+
 const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
-  ["maxPositionPct", "Position size (% of equity)", "number"],
+  ["maxPositionPct", "Share position size (% of equity)", "number"],
   ["maxOpenPositions", "Max open positions", "number"],
   ["maxPositionsPerStrategy", "Max positions per strategy", "number"],
   ["maxPositionsPerSector", "Max positions per sector", "number"],
@@ -107,6 +123,38 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
         <h2 className="text-sm font-semibold">Pinned symbols</h2>
         <p className="mt-1 text-xs text-muted">Always scanned, in addition to the universe. Comma or space separated.</p>
         <textarea className={`${input} mt-2 h-24 font-mono`} value={watchlist} onChange={(e) => setWatchlist(e.target.value)} />
+      </section>
+
+      <section className="rounded-lg border border-line bg-panel p-4">
+        <h2 className="text-sm font-semibold">What a buy signal buys</h2>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          {(["shares", "calls"] as const).map((k) => (
+            <label key={k} className="flex items-center gap-2">
+              <input type="radio" name="instrument" className="accent-[var(--accent)]" checked={s.instrument === k}
+                onChange={() => setS({ ...s, instrument: k })} />
+              {k === "shares" ? "Shares (with broker-held stop and target)" : "Call options"}
+            </label>
+          ))}
+        </div>
+        {s.instrument === "calls" && (
+          <>
+            <p className="mt-3 text-xs text-muted">
+              Each signal buys the call closest to the target delta and expiry that passes the liquidity filters, with a
+              limit order at the ask. Calls have no stop orders at the broker, so every minute the bot sells if the stock
+              hits the strategy&apos;s stop or target, the call hits the loss or gain limit, expiry gets close, or the
+              strategy&apos;s exit rule fires. Existing positions keep the instrument they were opened with.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {OPTION_FIELDS.map(([k, label]) => (
+                <label key={k} className="text-sm">
+                  <span className="text-xs text-muted">{label}</span>
+                  <input type="number" step="any" className={input} value={String(s.options[k])}
+                    onChange={(e) => setS({ ...s, options: { ...s.options, [k]: Number(e.target.value) } })} />
+                </label>
+              ))}
+            </div>
+          </>
+        )}
       </section>
 
       <section className="rounded-lg border border-line bg-panel p-4">

@@ -73,6 +73,22 @@ export async function resetStrategy(id: string) {
 
 const SettingsSchema = z.object({
   killSwitch: z.boolean(),
+  instrument: z.enum(["shares", "calls"]),
+  options: z.object({
+    premiumPct: z.number().min(0.1).max(25),
+    minDte: z.number().int().min(1).max(365),
+    maxDte: z.number().int().min(1).max(730),
+    targetDte: z.number().int().min(1).max(730),
+    minDelta: z.number().min(0.05).max(0.99),
+    maxDelta: z.number().min(0.05).max(0.99),
+    targetDelta: z.number().min(0.05).max(0.99),
+    minOpenInterest: z.number().int().min(0),
+    maxSpreadPct: z.number().min(0.5).max(100),
+    premiumStopPct: z.number().min(5).max(100),
+    premiumTargetPct: z.number().min(5).max(1000),
+    closeAtDte: z.number().int().min(0).max(60),
+    entryTimeoutMin: z.number().int().min(1).max(120),
+  }),
   watchlist: z.array(z.string().regex(/^[A-Z.]{1,6}$/)).max(200),
   universe: z.object({
     enabled: z.boolean(),

@@ -1,6 +1,7 @@
 import * as alpaca from "./alpaca";
 import { db, positions, trades } from "./db";
 import { round } from "./indicators";
+import { daysUntil } from "./options";
 import { STRATEGY_BY_ID } from "./strategies";
 import { etDay } from "./time";
 
@@ -10,10 +11,13 @@ export const appVersion = () => process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?
 
 const pct = (a: number, b: number) => round((a / b - 1) * 100, 3);
 
-/** Best/worst price while held, and sessions touched, from 5-minute bars between the two fills. */
-async function pathStats(symbol: string, from: Date, to: Date) {
+/** Best/worst price while held, and sessions touched, from 5-minute bars (the option's own bars for calls). */
+async function pathStats(symbol: string, from: Date, to: Date, isOption: boolean) {
   try {
-    const bars = await alpaca.getIntradayBars(symbol, new Date(from.getTime() - 5 * 60_000).toISOString(), to.toISOString());
+    const start = new Date(from.getTime() - 5 * 60_000).toISOString();
+    const bars = isOption
+      ? await alpaca.getOptionBars(symbol, start, to.toISOString())
+      : await alpaca.getIntradayBars(symbol, start, to.toISOString());
     if (!bars.length) return null;
     return {
       high: Math.max(...bars.map((b) => b.h)),
@@ -37,21 +41,40 @@ export async function recordClosedTrade(pos: Position, exit: alpaca.Order) {
   const exitReason =
     pos.exitReason ?? (exit.type === "stop" ? "stop_loss" : exit.type === "limit" ? "take_profit" : "external");
 
-  const [path, spyEntry, spyExit] = await Promise.all([
-    pathStats(pos.symbol, openedAt, closedAt),
+  const isCall = pos.instrument === "call";
+  const mult = pos.multiplier ?? 1;
+  const [path, spyEntry, spyExit, underlyingExit] = await Promise.all([
+    pathStats(pos.contract ?? pos.symbol, openedAt, closedAt, isCall),
     alpaca.priceAt("SPY", openedAt).catch(() => null),
     alpaca.priceAt("SPY", closedAt).catch(() => null),
+    isCall ? alpaca.priceAt(pos.symbol, closedAt).catch(() => null) : Promise.resolve(exitPrice),
   ]);
 
   const pnlPct = pct(exitPrice, entryPrice);
-  const riskPerShare = pos.stopPrice ? round(entryPrice - pos.stopPrice, 4) : null;
+  // Shares risk entry-to-stop; a call's planned risk is its premium stop.
+  const premiumStopPct = Number(pos.params?.opt_premiumStopPct ?? 0);
+  const riskPerShare = isCall
+    ? premiumStopPct ? round((entryPrice * premiumStopPct) / 100, 4) : null
+    : pos.stopPrice ? round(entryPrice - pos.stopPrice, 4) : null;
   const spyReturnPct = spyEntry && spyExit ? pct(spyExit, spyEntry) : null;
-  const notional = round(entryPrice * pos.qty);
+  const notional = round(entryPrice * pos.qty * mult);
+  const underlyingEntry = isCall ? pos.underlyingEntryPrice : entryPrice;
   const r = pos.review;
 
   const values: typeof trades.$inferInsert = {
     symbol: pos.symbol,
     sector: pos.sector,
+    instrument: isCall ? "call" : "shares",
+    contract: pos.contract,
+    strike: pos.strike,
+    expiration: pos.expiration,
+    dteAtEntry: pos.expiration ? daysUntil(pos.expiration, openedAt) : null,
+    multiplier: mult,
+    entryDelta: pos.entryDelta,
+    entryIv: pos.entryIv,
+    underlyingEntryPrice: underlyingEntry,
+    underlyingExitPrice: underlyingExit,
+    underlyingReturnPct: underlyingEntry && underlyingExit ? pct(underlyingExit, underlyingEntry) : null,
     strategyId: pos.strategyId,
     strategyName: STRATEGY_BY_ID[pos.strategyId]?.name ?? null,
     params: pos.params,
@@ -80,7 +103,7 @@ export async function recordClosedTrade(pos: Position, exit: alpaca.Order) {
     closedAt,
     exitPrice,
     exitSlippagePct: pos.exitSignalPrice ? round(-pct(exitPrice, pos.exitSignalPrice), 3) : null,
-    pnl: round((exitPrice - entryPrice) * pos.qty),
+    pnl: round((exitPrice - entryPrice) * pos.qty * mult),
     pnlPct,
     rMultiple: riskPerShare ? round((exitPrice - entryPrice) / riskPerShare) : null,
     holdMinutes: Math.round((closedAt.getTime() - openedAt.getTime()) / 60_000),
