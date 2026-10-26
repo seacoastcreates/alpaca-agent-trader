@@ -16,7 +16,7 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
 - **Options** (Settings -> What a buy signal buys): bullish signals buy calls, bearish signals buy puts. Each
   signal buys the contract nearest |delta| 0.65 and ~45 days to
   expiry that passes open-interest and spread filters and fits the premium budget (default 5% of equity), with a
-  limit order at the ask (cancelled if unfilled after 10 min). Calls have no broker-held stops, so every tick sells
+  limit order at the bid-ask midpoint (cancelled if unfilled after 10 min). Calls have no broker-held stops, so every tick sells
   on the strategy's stop/target level on the stock, -50% / +100% on the premium, 10 days to expiry, or the
   strategy's exit rule (limit at the bid, re-priced every 2 min). Option quotes use Alpaca's free indicative feed.
 - **Risk rules** (global, Claude can't override): position size % of equity, max open positions, max per strategy,
@@ -111,6 +111,25 @@ from trades where review_decision = 'approve' group by 1 order by 1;
 ```
 
 `mfe_pct`/`mae_pct` and hold sessions come from 5-minute IEX bars; SPY prices are the 1-minute bar at each fill.
+
+## Performance page
+
+**Performance** starts with the bot's real record on this account, from the `trades` and `signals` tables and the
+equity history: P&L, win rate, profit factor and account vs SPY; breakdowns by strategy, entry hour, exit reason,
+hold and instrument; whether the stock moved the rule's way vs whether the trade made money (signal vs options);
+how Claude-vetoed signals moved over the next 3 sessions compared with approved ones; what the risk rules blocked;
+and a short list of findings generated from those numbers (`src/lib/performance.ts`, no model call).
+
+Below it, the strategy backtest replays each strategy's own `entry` / `bracket` / `exit` code, with its saved params, over past daily
+bars (6 months to 3 years, pinned watchlist or the full scan list) and shows a return chart vs SPY buy & hold, a
+scoreboard (return, max drawdown, win rate, avg trade, profit factor, Sharpe, hold time, share invested) and the
+trade list. Each strategy runs as its own $100k account with the position size / max positions you pick, plus the
+min price and cooldown from Settings.
+
+Fill model: signals fill at the day's close; stops and targets fill at their level when the day's range touches them
+(stop first if both, at the open on a gap); strategy exit rules fill at the close. Bearish rules are scored as a
+short of the stock, not puts. The Claude reviewer, sector caps and options are left out, and today's symbol list is
+used for the whole period (survivorship bias). Code: `src/lib/backtest.ts`, `/api/backtest`.
 
 ## Where things live
 
