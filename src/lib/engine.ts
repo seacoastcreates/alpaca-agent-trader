@@ -50,6 +50,9 @@ function optionTick(price: number, dir: "up" | "down") {
   return round((dir === "up" ? Math.ceil(n - 1e-9) : Math.floor(n + 1e-9)) * tick);
 }
 
+/** Entry limit for an option buy: the bid-ask midpoint on a valid tick, never above the ask. */
+const entryLimit = (pick: OptionPick) => Math.min(optionTick(pick.mid, "up"), pick.ask);
+
 // Underlyings with no usable contracts are re-checked at most every 30 minutes (keyed by symbol:type).
 const noOptionCache = new Map<string, { reason: string; at: number }>();
 
@@ -432,8 +435,8 @@ async function runTick(result: TickResult, dryRun: boolean) {
         continue;
       }
       pick = r;
-      qty = Math.floor(budget / (r.ask * 100));
-      if (qty * r.ask * 100 > Number(account.options_buying_power ?? account.buying_power)) {
+      qty = Math.floor(budget / (entryLimit(r) * 100));
+      if (qty * entryLimit(r) * 100 > Number(account.options_buying_power ?? account.buying_power)) {
         await record(c, "blocked", "insufficient_options_buying_power");
         continue;
       }
@@ -451,7 +454,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
     const instrumentNote = pick
       ? `Buying ${qty} x ${pick.contract} (${c.symbol} $${pick.strike} ${pick.type}, expires ${pick.expiration}, ${pick.dte} days, ` +
         `delta ${pick.delta.toFixed(2)}, IV ${pick.iv != null ? (pick.iv * 100).toFixed(0) + "%" : "n/a"}) for about ` +
-        `$${round(qty * pick.ask * 100, 0)} of premium. Flag an earnings date or other binary event before expiration.`
+        `$${round(qty * entryLimit(pick) * 100, 0)} of premium. Flag an earnings date or other binary event before expiration.`
       : undefined;
 
     // ---- Claude review ----
@@ -498,8 +501,8 @@ async function runTick(result: TickResult, dryRun: boolean) {
       .values({
         symbol: c.symbol, strategyId: sid, sector, state: "pending", qty, entryOrderId: "pending",
         stopPrice: round(legs.stopPrice), takeProfitPrice: legs.takeProfitPrice ? round(legs.takeProfitPrice) : null,
-        signalAt: new Date(), signalPrice: pick ? pick.ask : price,
-        entryIndicators: pick ? { ...c.indicators, bid: pick.bid, ask: pick.ask, delta: round(pick.delta, 3) } : c.indicators,
+        signalAt: new Date(), signalPrice: pick ? entryLimit(pick) : price,
+        entryIndicators: pick ? { ...c.indicators, bid: pick.bid, ask: pick.ask, mid: round(pick.mid, 3), delta: round(pick.delta, 3) } : c.indicators,
         params: pick ? { ...c.strat.params, ...optionParams } : c.strat.params,
         review, equityAtEntry: equity, appVersion: appVersion(),
         ...(pick && {
@@ -515,7 +518,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
       const order = pick
         ? await alpaca.submitOrder({
             symbol: pick.contract, qty: String(qty), side: "buy", type: "limit",
-            limit_price: optionTick(pick.ask, "up").toFixed(2), time_in_force: "day",
+            limit_price: entryLimit(pick).toFixed(2), time_in_force: "day",
             client_order_id: clientId("e", sid, c.symbol),
           })
         : await alpaca.submitOrder({

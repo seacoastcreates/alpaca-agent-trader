@@ -142,7 +142,7 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
           <>
             <p className="mt-3 text-xs text-muted">
               Each signal buys the call (bullish) or put (bearish) closest to the target delta and expiry that passes the
-              liquidity filters, with a limit order at the ask. Options have no stop orders at the broker, so every minute
+              liquidity filters, with a limit order at the midpoint of the bid and ask (cancelled if it hasn&apos;t filled in time). Options have no stop orders at the broker, so every minute
               the bot sells if the stock hits the strategy&apos;s stop or target, the option hits the loss or gain limit,
               expiry gets close, or the strategy&apos;s exit rule fires. Existing positions keep the instrument they were
               opened with.

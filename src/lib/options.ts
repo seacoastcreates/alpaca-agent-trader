@@ -27,6 +27,7 @@ export type OptionPick = {
   dte: number;
   bid: number;
   ask: number;
+  mid: number; // (bid + ask) / 2: the entry limit is priced here
   delta: number; // signed: positive for calls, negative for puts
   iv: number | null;
   openInterest: number;
@@ -83,12 +84,12 @@ export async function pickOption(
     picks.push({
       type,
       contract, strike: occ.strike, expiration: occ.expiration, dte: daysUntil(occ.expiration, now),
-      bid, ask, delta, iv: snap.impliedVolatility ?? null, openInterest,
+      bid, ask, mid, delta, iv: snap.impliedVolatility ?? null, openInterest,
     });
   }
   if (!picks.length) return `no_liquid_${type}`;
   // At least one contract must fit the premium budget (lower-delta strikes are cheaper).
-  const affordable = picks.filter((p) => p.ask * 100 <= budget);
+  const affordable = picks.filter((p) => p.mid * 100 <= budget);
   if (!affordable.length) return "contract_too_expensive";
   const score = (p: OptionPick) => Math.abs(Math.abs(p.delta) - cfg.targetDelta) * 10 + Math.abs(p.dte - cfg.targetDte) / 30;
   return affordable.sort((a, b) => score(a) - score(b))[0];
