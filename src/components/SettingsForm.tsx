@@ -6,20 +6,29 @@ import type { Settings } from "@/lib/settings";
 
 const input = "num mt-1 block w-full rounded-md border border-line bg-bg px-2 py-1.5 text-sm";
 
-const OPTION_FIELDS: [keyof Settings["options"], string][] = [
+type NumericOption = Exclude<keyof Settings["options"], "weekly">;
+const OPTION_FIELDS: [NumericOption, string][] = [
   ["premiumPct", "Premium per trade (% of equity)"],
   ["targetDelta", "Target delta (absolute)"],
   ["minDelta", "Min delta (absolute)"],
   ["maxDelta", "Max delta (absolute)"],
+  ["minOpenInterest", "Min open interest"],
+  ["maxSpreadPct", "Max bid-ask spread (% of mid)"],
+  ["maxSpreadAbs", "Max bid-ask spread ($ per share, 0 = off)"],
+  ["premiumStopPct", "Sell if option loses (%)"],
+  ["premiumTargetPct", "Sell if option gains (%)"],
+  ["entryTimeoutMin", "Cancel unfilled buy after (min)"],
+];
+// Expiry fields depend on whether weekly contracts are on.
+const WEEKLY_FIELDS: [NumericOption, string][] = [
+  ["weeklyMinDte", "Skip expiries closer than (days)"],
+  ["weeklyCloseAtDte", "Sell weeklies at days to expiry"],
+];
+const DTE_FIELDS: [NumericOption, string][] = [
   ["targetDte", "Target days to expiry"],
   ["minDte", "Min days to expiry"],
   ["maxDte", "Max days to expiry"],
-  ["minOpenInterest", "Min open interest"],
-  ["maxSpreadPct", "Max bid-ask spread (% of mid)"],
-  ["premiumStopPct", "Sell if option loses (%)"],
-  ["premiumTargetPct", "Sell if option gains (%)"],
   ["closeAtDte", "Sell at days to expiry"],
-  ["entryTimeoutMin", "Cancel unfilled buy after (min)"],
 ];
 
 const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
@@ -142,13 +151,18 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
           <>
             <p className="mt-3 text-xs text-muted">
               Each signal buys the call (bullish) or put (bearish) closest to the target delta and expiry that passes the
-              liquidity filters, with a limit order at the midpoint of the bid and ask (cancelled if it hasn&apos;t filled in time). Options have no stop orders at the broker, so every minute
+              liquidity filters (contracts wider than either spread limit are skipped), with a limit order at the midpoint of the bid and ask (cancelled if it hasn&apos;t filled in time). Options have no stop orders at the broker, so every minute
               the bot sells if the stock hits the strategy&apos;s stop or target, the option hits the loss or gain limit,
               expiry gets close, or the strategy&apos;s exit rule fires. Existing positions keep the instrument they were
               opened with.
             </p>
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={s.options.weekly}
+                onChange={(e) => setS({ ...s, options: { ...s.options, weekly: e.target.checked } })} />
+              Buy this week&apos;s contracts (nearest expiry) instead of a days-to-expiry range
+            </label>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {OPTION_FIELDS.map(([k, label]) => (
+              {[...OPTION_FIELDS, ...(s.options.weekly ? WEEKLY_FIELDS : DTE_FIELDS)].map(([k, label]) => (
                 <label key={k} className="text-sm">
                   <span className="text-xs text-muted">{label}</span>
                   <input type="number" step="any" className={input} value={String(s.options[k])}

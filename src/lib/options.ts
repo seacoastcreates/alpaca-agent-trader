@@ -3,6 +3,9 @@ import { round } from "./indicators";
 
 export type OptionsConfig = {
   premiumPct: number; // % of equity spent on premium per trade
+  weekly: boolean; // buy this week's (Friday) expiry, ignoring the DTE range below
+  weeklyMinDte: number; // skip expiries closer than this (1 = no same-day contracts, so Friday buys next week's)
+  weeklyCloseAtDte: number; // sell weekly contracts when this close to expiry (0 = morning of expiration day)
   minDte: number;
   maxDte: number;
   targetDte: number;
@@ -11,6 +14,7 @@ export type OptionsConfig = {
   targetDelta: number;
   minOpenInterest: number;
   maxSpreadPct: number; // (ask - bid) / mid, %
+  maxSpreadAbs: number; // ask - bid, $ per share (x100 per contract); 0 = no dollar cap
   premiumStopPct: number; // sell if the option loses this much
   premiumTargetPct: number; // sell if the option gains this much
   closeAtDte: number; // sell when this close to expiry
@@ -55,10 +59,12 @@ export async function pickOption(
   const now = new Date();
   // |delta| 0.5-0.8 lives roughly 0-25% in the money for 30-60 day options: below spot for calls, above for puts.
   const [lo, hi] = type === "call" ? [0.7, 1.05] : [0.95, 1.3];
+  // Weekly: look up to ~10 days out and keep only the nearest expiry; otherwise the configured DTE range.
+  const [minDte, maxDte] = cfg.weekly ? [cfg.weeklyMinDte, cfg.weeklyMinDte + 10] : [cfg.minDte, cfg.maxDte];
   const filter = {
     type,
-    expiration_date_gte: isoDate(new Date(now.getTime() + cfg.minDte * DAY)),
-    expiration_date_lte: isoDate(new Date(now.getTime() + cfg.maxDte * DAY)),
+    expiration_date_gte: isoDate(new Date(now.getTime() + minDte * DAY)),
+    expiration_date_lte: isoDate(new Date(now.getTime() + maxDte * DAY)),
     strike_price_gte: round(price * lo).toString(),
     strike_price_lte: round(price * hi).toString(),
   };
@@ -68,17 +74,32 @@ export async function pickOption(
   ]);
   if (!Object.keys(chain).length) return "no_option_chain";
   const oi = new Map(contracts.map((c) => [c.symbol, Number(c.open_interest ?? 0)]));
+  // Weekly: this week's Friday expiry (the latest listed on or before it, for holiday weeks), not a daily expiry
+  // earlier in the week; the nearest listed one if there is none. Chosen before the liquidity filters, so a thin
+  // weekly isn't swapped for a later expiry.
+  let nearest: string | undefined;
+  if (cfg.weekly) {
+    const expiries = [...new Set(Object.keys(chain).map((c) => parseOcc(c)?.expiration).filter((e): e is string => !!e))].sort();
+    const base = new Date(Date.parse(filter.expiration_date_gte));
+    const friday = isoDate(new Date(base.getTime() + ((5 - base.getUTCDay() + 7) % 7) * DAY));
+    nearest = expiries.filter((e) => e <= friday).at(-1) ?? expiries[0];
+  }
 
   const picks: OptionPick[] = [];
+  let tooWide = 0;
   for (const [contract, snap] of Object.entries(chain)) {
     const occ = parseOcc(contract);
+    if (nearest && occ?.expiration !== nearest) continue;
     const bid = snap.latestQuote?.bp ?? 0;
     const ask = snap.latestQuote?.ap ?? 0;
     const delta = snap.greeks?.delta;
     if (!occ || bid <= 0 || ask <= 0 || delta == null) continue;
     const mid = (bid + ask) / 2;
-    if (((ask - bid) / mid) * 100 > cfg.maxSpreadPct) continue;
     if (Math.abs(delta) < cfg.minDelta || Math.abs(delta) > cfg.maxDelta) continue;
+    if (((ask - bid) / mid) * 100 > cfg.maxSpreadPct || (cfg.maxSpreadAbs > 0 && ask - bid > cfg.maxSpreadAbs + 1e-9)) {
+      tooWide++;
+      continue;
+    }
     const openInterest = oi.get(contract) ?? 0;
     if (openInterest < cfg.minOpenInterest) continue;
     picks.push({
@@ -87,10 +108,11 @@ export async function pickOption(
       bid, ask, mid, delta, iv: snap.impliedVolatility ?? null, openInterest,
     });
   }
-  if (!picks.length) return `no_liquid_${type}`;
+  if (!picks.length) return tooWide ? "spread_too_wide" : `no_liquid_${type}`;
   // At least one contract must fit the premium budget (lower-delta strikes are cheaper).
   const affordable = picks.filter((p) => p.mid * 100 <= budget);
   if (!affordable.length) return "contract_too_expensive";
-  const score = (p: OptionPick) => Math.abs(Math.abs(p.delta) - cfg.targetDelta) * 10 + Math.abs(p.dte - cfg.targetDte) / 30;
+  const score = (p: OptionPick) =>
+    Math.abs(Math.abs(p.delta) - cfg.targetDelta) * 10 + (cfg.weekly ? 0 : Math.abs(p.dte - cfg.targetDte) / 30);
   return affordable.sort((a, b) => score(a) - score(b))[0];
 }

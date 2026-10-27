@@ -6,13 +6,21 @@ import { z } from "zod";
 import { db, strategies } from "@/lib/db";
 import { flattenAll, tick } from "@/lib/engine";
 import { runJournal } from "@/lib/journal";
+import { isOwner } from "@/lib/auth";
 import { getSettings, saveSettings } from "@/lib/settings";
 import { refreshUniverse } from "@/lib/universe";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+// Server actions can be posted from any page, including the public Strategies page, so each one checks the
+// session itself rather than relying on the middleware.
+async function requireOwner() {
+  if (!(await isOwner())) throw new Error("Sign in to make changes");
+}
+
 export async function runTickNow() {
+  await requireOwner();
   try {
     const r = await tick("manual");
     revalidatePath("/", "layout");
@@ -23,6 +31,7 @@ export async function runTickNow() {
 }
 
 export async function previewSignals() {
+  await requireOwner();
   try {
     const r = await tick("preview", { dryRun: true });
     return { ok: true as const, gate: r.gate, candidates: r.candidates, exits: r.exits };
@@ -32,12 +41,14 @@ export async function previewSignals() {
 }
 
 export async function setKillSwitch(on: boolean) {
+  await requireOwner();
   const s = await getSettings();
   await saveSettings({ ...s, killSwitch: on });
   revalidatePath("/", "layout");
 }
 
 export async function flatten() {
+  await requireOwner();
   try {
     const closed = await flattenAll();
     revalidatePath("/", "layout");
@@ -48,6 +59,7 @@ export async function flatten() {
 }
 
 export async function updateStrategy(id: string, enabled: boolean, params: Record<string, number | boolean>) {
+  await requireOwner();
   const def = STRATEGY_BY_ID[id];
   if (!def) throw new Error(`Unknown strategy ${id}`);
   const clean: Record<string, number | boolean> = {};
@@ -66,6 +78,7 @@ export async function updateStrategy(id: string, enabled: boolean, params: Recor
 }
 
 export async function resetStrategy(id: string) {
+  await requireOwner();
   const def = STRATEGY_BY_ID[id];
   await db.update(strategies).set({ params: def.defaultParams, updatedAt: new Date() }).where(eq(strategies.id, id));
   revalidatePath("/strategies");
@@ -76,6 +89,9 @@ const SettingsSchema = z.object({
   instrument: z.enum(["shares", "options"]),
   options: z.object({
     premiumPct: z.number().min(0.1).max(25),
+    weekly: z.boolean(),
+    weeklyMinDte: z.number().int().min(0).max(7),
+    weeklyCloseAtDte: z.number().int().min(0).max(7),
     minDte: z.number().int().min(1).max(365),
     maxDte: z.number().int().min(1).max(730),
     targetDte: z.number().int().min(1).max(730),
@@ -84,6 +100,7 @@ const SettingsSchema = z.object({
     targetDelta: z.number().min(0.05).max(0.99),
     minOpenInterest: z.number().int().min(0),
     maxSpreadPct: z.number().min(0.5).max(100),
+    maxSpreadAbs: z.number().min(0).max(10),
     premiumStopPct: z.number().min(5).max(100),
     premiumTargetPct: z.number().min(5).max(1000),
     closeAtDte: z.number().int().min(0).max(60),
@@ -118,6 +135,7 @@ const SettingsSchema = z.object({
 });
 
 export async function saveSettingsAction(input: unknown) {
+  await requireOwner();
   const parsed = SettingsSchema.safeParse(input);
   if (!parsed.success) return { ok: false as const, error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
   await saveSettings(parsed.data);
@@ -126,6 +144,7 @@ export async function saveSettingsAction(input: unknown) {
 }
 
 export async function generateJournal() {
+  await requireOwner();
   try {
     await runJournal();
     revalidatePath("/journal");
@@ -136,6 +155,7 @@ export async function generateJournal() {
 }
 
 export async function refreshUniverseNow() {
+  await requireOwner();
   try {
     const r = await refreshUniverse({ force: true });
     revalidatePath("/settings");

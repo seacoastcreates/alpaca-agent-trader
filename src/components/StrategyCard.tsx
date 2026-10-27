@@ -13,6 +13,7 @@ type Props = {
   meta: Record<string, ParamMeta>;
   stats?: { trades: number; winRate: number; totalPnl: number; avgPnlPct: number };
   openCount: number;
+  canEdit: boolean;
 };
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -43,7 +44,7 @@ export function StrategyCard(p: Props) {
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <input
-            type="checkbox" checked={enabled} disabled={pending} className="h-4 w-4 accent-[var(--accent)]"
+            type="checkbox" checked={enabled} disabled={pending || !p.canEdit} className="h-4 w-4 accent-[var(--accent)]"
             onChange={(e) => { setEnabled(e.target.checked); save(e.target.checked); }}
           />
           {enabled ? "Enabled" : "Disabled"}
@@ -70,7 +71,7 @@ export function StrategyCard(p: Props) {
           typeof params[k] === "boolean" ? (
             <label key={k} className="flex items-center gap-2 text-sm">
               <input
-                type="checkbox" checked={Boolean(params[k])} className="h-4 w-4 accent-[var(--accent)]"
+                type="checkbox" checked={Boolean(params[k])} disabled={!p.canEdit} className="h-4 w-4 accent-[var(--accent)]"
                 onChange={(e) => setParams({ ...params, [k]: e.target.checked })}
               />
               {m.label}
@@ -79,7 +80,7 @@ export function StrategyCard(p: Props) {
             <label key={k} className="text-sm">
               <span className="text-xs text-muted">{m.label}</span>
               <input
-                type="number" min={m.min} max={m.max} step={m.step} value={String(params[k])}
+                type="number" min={m.min} max={m.max} step={m.step} value={String(params[k])} readOnly={!p.canEdit}
                 className="num mt-1 block w-full rounded-md border border-line bg-bg px-2 py-1.5"
                 onChange={(e) => setParams({ ...params, [k]: e.target.value === "" ? "" as unknown as number : Number(e.target.value) })}
               />
@@ -88,7 +89,7 @@ export function StrategyCard(p: Props) {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
+      {p.canEdit && <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
         <button
           className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:text-black"
           disabled={!dirty || pending} onClick={() => save()}
@@ -98,7 +99,7 @@ export function StrategyCard(p: Props) {
           onClick={() => start(async () => { await resetStrategy(p.id); setMsg("Reset to defaults, reload to see them"); })}
         >Reset to defaults</button>
         {msg && <span className="text-sm text-muted">{msg}</span>}
-      </div>
+      </div>}
     </section>
   );
 }

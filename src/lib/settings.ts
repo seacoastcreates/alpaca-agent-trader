@@ -38,8 +38,8 @@ export const DEFAULT_SETTINGS: Settings = {
   killSwitch: false,
   instrument: "shares",
   options: {
-    premiumPct: 5, minDte: 30, maxDte: 60, targetDte: 45, minDelta: 0.55, maxDelta: 0.8, targetDelta: 0.65,
-    minOpenInterest: 100, maxSpreadPct: 10, premiumStopPct: 50, premiumTargetPct: 100, closeAtDte: 10, entryTimeoutMin: 10,
+    premiumPct: 5, weekly: true, weeklyMinDte: 1, weeklyCloseAtDte: 0, minDte: 30, maxDte: 60, targetDte: 45, minDelta: 0.55, maxDelta: 0.8, targetDelta: 0.65,
+    minOpenInterest: 100, maxSpreadPct: 5, maxSpreadAbs: 0.15, premiumStopPct: 50, premiumTargetPct: 100, closeAtDte: 10, entryTimeoutMin: 10,
   },
   watchlist: [
     "SPY", "QQQ", "IWM", "XLF", "XLE", "XLV", "XLK",

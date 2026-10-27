@@ -23,12 +23,12 @@ export async function loadStrategies(): Promise<ActiveStrategy[]> {
   if (missing.length) {
     await db
       .insert(strategies)
-      .values(missing.map((s) => ({ id: s.id, enabled: true, params: s.defaultParams })))
+      .values(missing.map((s) => ({ id: s.id, enabled: s.defaultEnabled ?? true, params: s.defaultParams })))
       .onConflictDoNothing();
   }
   return STRATEGIES.map((def) => {
     const row = rows.find((r) => r.id === def.id);
-    return { def, enabled: row?.enabled ?? true, params: { ...def.defaultParams, ...row?.params } };
+    return { def, enabled: row?.enabled ?? def.defaultEnabled ?? true, params: { ...def.defaultParams, ...row?.params } };
   });
 }
 
@@ -244,7 +244,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const [ours, live] = await Promise.all([db.select().from(positions), alpaca.getPositions()]);
   const liveSymbols = new Set(live.map((p) => p.symbol));
   const { symbols: scan, sectors } = await scanList(settings);
-  const symbols = [...new Set([...scan, ...ours.map((p) => p.symbol)])];
+  const symbols = [...new Set([...scan, "SPY", ...ours.map((p) => p.symbol)])]; // SPY: market benchmark
   const barsBySymbol = await alpaca.getDailyBars(symbols);
   const elapsed = Math.min(Math.max((etMinutes() - 570) / 390, 0), 1);
 
@@ -280,8 +280,10 @@ async function runTick(result: TickResult, dryRun: boolean) {
     if (opt) {
       const o = settings.options;
       const dte = pos.expiration ? daysUntil(pos.expiration) : Infinity;
+      // Contracts bought a week or less from expiry are weeklies, whatever the current setting.
+      const weekly = pos.expiration != null && daysUntil(pos.expiration, pos.openedAt) <= 7;
       const ind = { price, ...(bid ? { bid } : {}), entry: pos.entryPrice, dte };
-      if (dte <= o.closeAtDte) exit = { reason: "expiry_close", indicators: ind };
+      if (dte <= (weekly ? o.weeklyCloseAtDte : o.closeAtDte)) exit = { reason: "expiry_close", indicators: ind };
       else if (pos.stopPrice && (bearish ? price >= pos.stopPrice : price <= pos.stopPrice))
         exit = { reason: "underlying_stop", indicators: { ...ind, stop: pos.stopPrice } };
       else if (pos.takeProfitPrice && (bearish ? price <= pos.takeProfitPrice : price >= pos.takeProfitPrice))
@@ -325,15 +327,21 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
   // ---- Entry gate ----
   const now = etMinutes();
-  const gate = settings.killSwitch
+  const baseGate = settings.killSwitch
     ? "kill_switch"
     : dayPnlPct <= -settings.risk.dailyLossLimitPct
       ? "daily_loss_limit"
       : account.trading_blocked
         ? "account_blocked"
-        : now < hhmmToMinutes(settings.risk.entryStartET) || now > hhmmToMinutes(settings.risk.entryEndET)
-          ? "outside_entry_window"
-          : null;
+        : null;
+  // Opening-bell strategies may start at the open (9:30) instead of the configured entry start.
+  const windowGate = (fromOpen = false) =>
+    baseGate ??
+    (now < (fromOpen ? 570 : hhmmToMinutes(settings.risk.entryStartET)) || now > hhmmToMinutes(settings.risk.entryEndET)
+      ? "outside_entry_window"
+      : null);
+  const gateFor = (def: Strategy) => windowGate(def.entryFromOpen);
+  const gate = windowGate();
   result.gate = gate;
 
   // ---- Candidates ----
@@ -341,13 +349,24 @@ async function runTick(result: TickResult, dryRun: boolean) {
   const raw: { strat: ActiveStrategy; symbol: string; bars: Bar[]; score: number; indicators: Record<string, number> }[] = [];
   // Bearish rules can only be expressed with puts, so they sit out in shares mode.
   const useOptions = settings.instrument === "options";
-  for (const strat of active.filter((a) => a.enabled && (useOptions || a.def.direction === "bullish"))) {
+  const scanning = active.filter((a) => a.enabled && (useOptions || a.def.direction === "bullish"));
+  // Intraday candles only for the intervals an enabled strategy uses, and only while entries are allowed.
+  const intervals = [...new Set(scanning.flatMap((a) => (a.def.intervalMin && !gateFor(a.def) ? [a.def.intervalMin(a.params)] : [])))];
+  const intradayBy = new Map<number, Record<string, Bar[]>>();
+  for (const m of intervals) {
+    intradayBy.set(m, await alpaca.getSessionBars(scan, m).catch((e) => (log.push(`${m}-min bars failed: ${e}`), {})));
+  }
+  for (const strat of scanning) {
+    if (strat.def.intervalMin && gateFor(strat.def)) continue;
+    const intradayBars = strat.def.intervalMin ? intradayBy.get(strat.def.intervalMin(strat.params)) : undefined;
     for (const symbol of scan) {
       const bars = barsBySymbol[symbol];
       if (held.has(symbol) || !bars || bars.length < 30) continue;
       if (bars.at(-1)!.c < settings.risk.minPrice) continue;
       const sessionFraction = sessionVolumeShare(bars, today, clock.is_open, elapsed);
-      const sig = strat.def.entry({ bars, params: strat.params, sessionFraction });
+      const sig = strat.def.entry({
+        bars, params: strat.params, sessionFraction, intraday: intradayBars?.[symbol], benchmark: barsBySymbol.SPY,
+      });
       if (sig) raw.push({ strat, symbol, bars, ...sig });
     }
   }
@@ -404,7 +423,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
     if (decided) continue; // one decision per symbol/strategy per day
 
     const block =
-      gate ??
+      gateFor(c.strat.def) ??
       (recentlyClosed.has(c.symbol) ? "cooldown" : null) ??
       (openCount >= settings.risk.maxOpenPositions ? "max_open_positions" : null) ??
       ((perStrategy.get(sid) ?? 0) >= settings.risk.maxPositionsPerStrategy ? "max_positions_per_strategy" : null) ??
@@ -494,7 +513,7 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
     // ---- Order ----
     // Stop/target levels are on the underlying: broker-held bracket legs for shares, checked each tick for options.
-    const legs = c.strat.def.bracket(price, c.strat.params);
+    const legs = c.strat.def.bracket(price, c.strat.params, c.indicators);
     const optionParams = Object.fromEntries(Object.entries(settings.options).map(([k, v]) => [`opt_${k}`, v]));
     const claimed = await db
       .insert(positions)

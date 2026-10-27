@@ -9,7 +9,9 @@ export default function LoginPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const res = await fetch("/api/login", { method: "POST", body: JSON.stringify({ password }) });
-    if (res.ok) window.location.href = "/";
+    // Only same-site paths, so a crafted link can't bounce a signed-in owner elsewhere.
+    const next = new URLSearchParams(window.location.search).get("next") ?? "/";
+    if (res.ok) window.location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/";
     else setError((await res.json()).error ?? "Login failed");
   }
 

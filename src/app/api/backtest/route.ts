@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     const [settings, active] = await Promise.all([getSettings(), loadStrategies()]);
     const symbols = body.universe === "full" ? (await scanList(settings)).symbols : settings.watchlist;
     const result = await runBacktest({
-      strategies: active.filter((a) => body.strategies.includes(a.def.id)).map((a) => ({ id: a.def.id, params: a.params })),
+      strategies: active.filter((a) => !a.def.intervalMin && body.strategies.includes(a.def.id)).map((a) => ({ id: a.def.id, params: a.params })),
       symbols,
       period: body.period,
       options: {

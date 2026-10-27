@@ -9,6 +9,10 @@ export type EntryContext = {
   params: Params;
   /** Expected share of a full day's volume traded so far (1 for a completed bar); used to project partial-day volume. */
   sessionFraction: number;
+  /** Today's completed regular-session bars at intervalMin(params) minutes; only set for strategies with intervalMin. */
+  intraday?: Bar[];
+  /** SPY daily bars (today's in-progress bar last during the session), for rules relative to the market. */
+  benchmark?: Bar[];
 };
 
 export type ExitContext = {
@@ -32,13 +36,19 @@ export type Strategy = {
   /** Plain-English rules: shown in the UI and given to the Claude reviewer. */
   rules: (p: Params) => string;
   defaultParams: Params;
+  /** Strategies that trade intraday candles (5 or 15 min) say which interval; the rest run on daily bars only. */
+  intervalMin?: (p: Params) => number;
+  /** Opening-bell rules may enter from the open, ahead of the global entry start time (they time themselves). */
+  entryFromOpen?: boolean;
+  /** Whether a newly added strategy starts enabled (default true). */
+  defaultEnabled?: boolean;
   paramMeta: Record<string, ParamMeta>;
   entry: (ctx: EntryContext) => Signal | null;
   /**
    * Stop/target levels on the underlying. Bullish: stop below, target above (broker-held legs for shares).
    * Bearish: stop above, target below (checked each tick, since bearish trades are always puts).
    */
-  bracket: (price: number, p: Params) => { stopPrice: number; takeProfitPrice?: number };
+  bracket: (price: number, p: Params, indicators?: Record<string, number>) => { stopPrice: number; takeProfitPrice?: number };
   exit: (ctx: ExitContext) => ExitSignal | null;
 };
 

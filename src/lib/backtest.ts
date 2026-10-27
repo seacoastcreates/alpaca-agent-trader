@@ -194,7 +194,7 @@ export function simulate(
       // ---- Entries: best scores first, into the free slots ----
       const free = opts.maxPositions - b.open.size;
       if (free > 0) {
-        const candidates: { symbol: string; score: number }[] = [];
+        const candidates: { symbol: string; score: number; indicators: Record<string, number> }[] = [];
         for (const s of today.keys()) {
           if (b.open.has(s)) continue;
           const last = b.lastExit.get(s);
@@ -202,7 +202,7 @@ export function simulate(
           const bars = windowOf(s);
           if (bars.at(-1)!.c < opts.minPrice) continue;
           const sig = b.def.entry({ bars, params: b.params, sessionFraction: 1 });
-          if (sig) candidates.push({ symbol: s, score: sig.score });
+          if (sig) candidates.push({ symbol: s, score: sig.score, indicators: sig.indicators });
         }
         candidates.sort((a, c) => c.score - a.score);
         let { pnl, invested } = unrealized(b, closeOf);
@@ -213,7 +213,7 @@ export function simulate(
           const notional = Math.min((equity * opts.positionPct) / 100, equity - invested);
           const qty = Math.floor(notional / price);
           if (qty < 1) continue;
-          const legs = b.def.bracket(price, b.params);
+          const legs = b.def.bracket(price, b.params, c.indicators);
           b.open.set(c.symbol, {
             symbol: c.symbol, entryIdx: today.get(c.symbol)!, entryDate: date, entryPrice: price, qty,
             stopPrice: legs.stopPrice, takeProfitPrice: legs.takeProfitPrice, highWater: price,

@@ -162,7 +162,7 @@ export default async function PerformancePage() {
           </p>
         </div>
         <BacktestRunner
-          strategies={active.map((x) => ({ id: x.def.id, name: x.def.name, direction: x.def.direction, enabled: x.enabled }))}
+          strategies={active.filter((x) => !x.def.intervalMin).map((x) => ({ id: x.def.id, name: x.def.name, direction: x.def.direction, enabled: x.enabled }))}
           defaults={{ positionPct: settings.risk.maxPositionPct, maxPositions: settings.risk.maxPositionsPerStrategy }}
           watchlistCount={settings.watchlist.length}
           fullCount={fullCount}

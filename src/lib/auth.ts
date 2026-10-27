@@ -17,3 +17,9 @@ export function isCronRequest(req: Request) {
   const secret = process.env.CRON_SECRET;
   return !!secret && req.headers.get("authorization") === `Bearer ${secret}`;
 }
+
+/** True when the request carries the owner's session cookie (server components and actions only). */
+export async function isOwner() {
+  const { cookies } = await import("next/headers");
+  return isValidSession((await cookies()).get(SESSION_COOKIE)?.value);
+}

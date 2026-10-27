@@ -182,6 +182,40 @@ export async function getIntradayBars(symbol: string, start: string, end: string
 }
 
 /**
+ * Today's completed regular-session bars (from 9:30 ET) for many symbols at an N-minute interval. The bar still
+ * forming is dropped, so a pattern is only judged once its candle has closed.
+ */
+export async function getSessionBars(symbols: string[], minutes: number): Promise<Record<string, Bar[]>> {
+  const out: Record<string, Bar[]> = {};
+  if (!symbols.length) return out;
+  const now = Date.now();
+  const today = etDate();
+  const start = new Date(now - 7 * 3600_000).toISOString(); // covers the session so far
+  for (const batch of chunk(symbols, 200)) {
+    let pageToken: string | undefined;
+    do {
+      const q = new URLSearchParams({ symbols: batch.join(","), timeframe: `${minutes}Min`, start, limit: "10000", feed: FEED });
+      if (pageToken) q.set("page_token", pageToken);
+      const res = await data<{ bars: Record<string, Bar[]>; next_page_token: string | null }>(`/v2/stocks/bars?${q}`);
+      for (const [sym, bars] of Object.entries(res.bars ?? {})) (out[sym] ??= []).push(...bars);
+      pageToken = res.next_page_token ?? undefined;
+    } while (pageToken);
+  }
+  const etMin = (d: Date) => {
+    const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .format(d).split(":").map(Number);
+    return h * 60 + m;
+  };
+  for (const sym of Object.keys(out)) {
+    out[sym] = out[sym].filter((b) => {
+      const t = new Date(b.t);
+      return etDate(t) === today && etMin(t) >= 570 && etMin(t) < 960 && t.getTime() + minutes * 60_000 <= now;
+    });
+  }
+  return out;
+}
+
+/**
  * Price of a symbol at an instant: the close of the last 1-minute bar at or before it. Trades are recorded within a
  * minute of the fill, before the bar for that minute exists, so looking forward would usually find nothing.
  * Falls back to the latest trade.
