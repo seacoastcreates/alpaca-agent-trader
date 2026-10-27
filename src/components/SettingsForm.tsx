@@ -46,7 +46,7 @@ const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
 
 type UniverseStatus = { count: number; etfs: number; computedAt: string; preview: string[] } | null;
 
-export function SettingsForm({ initial, universe }: { initial: Settings; universe: UniverseStatus }) {
+export function SettingsForm({ initial, universe, canEdit }: { initial: Settings; universe: UniverseStatus; canEdit: boolean }) {
   const [s, setS] = useState(initial);
   const [watchlist, setWatchlist] = useState(initial.watchlist.join(", "));
   const [pending, start] = useTransition();
@@ -62,7 +62,8 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
     });
 
   return (
-    <div className="space-y-5">
+    // A disabled fieldset disables every input and button inside it.
+    <fieldset disabled={!canEdit} className="min-w-0 space-y-5">
       <section className="rounded-lg border border-line bg-panel p-4">
         <h2 className="text-sm font-semibold">Most-active universe</h2>
         <p className="mt-1 text-xs text-muted">
@@ -227,12 +228,12 @@ export function SettingsForm({ initial, universe }: { initial: Settings; univers
         </div>
       </section>
 
-      <div className="flex items-center gap-3">
+      {canEdit && <div className="flex items-center gap-3">
         <button className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:text-black" disabled={pending} onClick={save}>
           {pending ? "Saving…" : "Save settings"}
         </button>
         {msg && <span className={`text-sm ${msg.ok ? "text-good" : "text-bad"}`}>{msg.text}</span>}
-      </div>
-    </div>
+      </div>}
+    </fieldset>
   );
 }

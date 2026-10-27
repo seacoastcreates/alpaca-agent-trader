@@ -65,7 +65,7 @@ Vercel's Hobby plan only allows daily crons, so the per-minute tick comes from a
    npm run dev -- -p 3001
    ```
    Until Google sign-in is configured (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET`, `OWNER_EMAILS`) the
-   dashboard is open locally and locked in production. The Strategies page is public and read-only for visitors.
+   dashboard is open locally and locked in production. Pages are public and read-only for visitors.
 3. **Vercel**: import the GitHub repo, add every variable from `.env.example`, deploy.
    The journal cron in `vercel.json` registers automatically and Vercel sends `CRON_SECRET` as a Bearer token.
 4. **Pinger**: on the Netlify site, set `TICK_URL=https://<your-app>.vercel.app/api/tick` and the same `CRON_SECRET`

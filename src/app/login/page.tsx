@@ -11,7 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <div className="mx-auto mt-16 max-w-sm space-y-3 rounded-lg border border-line bg-panel p-6">
       <h1 className="font-semibold">Sign in</h1>
-      <p className="text-sm text-ink-2">Only the owner can sign in. The Strategies page is open to everyone.</p>
+      <p className="text-sm text-ink-2">Only the owner can sign in. Every page is open to view without signing in.</p>
       {error && <p className="text-sm text-bad">{ERRORS[error] ?? "Sign-in failed."}</p>}
       <a
         href={`/api/auth/google?next=${encodeURIComponent(safeNext(next))}`}

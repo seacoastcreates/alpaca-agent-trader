@@ -1,18 +1,21 @@
 import { desc } from "drizzle-orm";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { Controls } from "@/components/Controls";
+import { ReadOnlyNote } from "@/components/ReadOnlyNote";
 import { EquityChart } from "@/components/EquityChart";
 import { Ticker } from "@/components/Ticker";
 import { Badge, Card, Stat, Table, pct, td, tone, usd } from "@/components/ui";
 import * as alpaca from "@/lib/alpaca";
 import { db, positions, runs } from "@/lib/db";
 import { equityHistory } from "@/lib/equity";
+import { isOwner } from "@/lib/auth";
 import { getSettings } from "@/lib/settings";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
 
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
+  const owner = await isOwner();
   let data;
   try {
     data = await Promise.all([
@@ -66,7 +69,7 @@ export default async function Dashboard() {
       </div>
 
       <Card title="Controls">
-        <Controls killSwitch={settings.killSwitch} />
+        {owner ? <Controls killSwitch={settings.killSwitch} /> : <ReadOnlyNote next="/">The bot trades on its own every minute; controls are for the owner.</ReadOnlyNote>}
       </Card>
 
       <Card title="Equity">

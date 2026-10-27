@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { Ticker } from "@/components/Ticker";
 import { Badge, Card, Table, pct, td, usd } from "@/components/ui";
+import { isOwner } from "@/lib/auth";
 import { db, signals, trades } from "@/lib/db";
 import { STRATEGY_BY_ID } from "@/lib/strategies";
 
@@ -14,6 +15,7 @@ const time = (d: Date) =>
   d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+  const owner = await isOwner();
   const { status = "all" } = await searchParams;
   const [rows, closed] = await Promise.all([
     db.select().from(signals)
@@ -62,7 +64,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
 
       <Card
         title="Closed trades"
-        action={
+        action={owner &&
           <div className="flex gap-2 text-xs">
             <a href="/api/export/trades" download className="rounded border border-line px-2 py-1 hover:bg-ink/5">Trades CSV</a>
             <a href="/api/export/signals" download className="rounded border border-line px-2 py-1 hover:bg-ink/5">Signals CSV</a>

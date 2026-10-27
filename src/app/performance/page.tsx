@@ -1,4 +1,6 @@
 import { BacktestRunner } from "@/components/BacktestRunner";
+import { ReadOnlyNote } from "@/components/ReadOnlyNote";
+import { isOwner } from "@/lib/auth";
 import { ReturnChart } from "@/components/ReturnChart";
 import { Ticker } from "@/components/Ticker";
 import { Badge, Card, Stat, Table, pct, td, tone, usd } from "@/components/ui";
@@ -30,7 +32,9 @@ function GroupTable({ rows }: { rows: Group[] }) {
 }
 
 export default async function PerformancePage() {
-  const [perf, active, settings, universe] = await Promise.all([getPerformance(), loadStrategies(), getSettings(), getUniverse()]);
+  const [perf, active, settings, universe, owner] = await Promise.all([
+    getPerformance(), loadStrategies(), getSettings(), getUniverse(), isOwner(),
+  ]);
   const fullCount = new Set([...settings.watchlist, ...(settings.universe.enabled ? universe?.symbols ?? [] : [])]).size;
   const { summary: s, account: a, vsStock: v, claude } = perf;
 
@@ -161,12 +165,12 @@ export default async function PerformancePage() {
             gap). Bearish rules are scored as a short of the stock, not puts, and the Claude reviewer is left out.
           </p>
         </div>
-        <BacktestRunner
+        {owner ? <BacktestRunner
           strategies={active.filter((x) => !x.def.intervalMin).map((x) => ({ id: x.def.id, name: x.def.name, direction: x.def.direction, enabled: x.enabled }))}
           defaults={{ positionPct: settings.risk.maxPositionPct, maxPositions: settings.risk.maxPositionsPerStrategy }}
           watchlistCount={settings.watchlist.length}
           fullCount={fullCount}
-        />
+        /> : <ReadOnlyNote next="/performance">Running backtests is limited to the owner.</ReadOnlyNote>}
       </section>
     </div>
   );

@@ -1,18 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 
+// Pages are public and read-only for visitors; server actions check the owner session themselves (actions.ts).
+// Only the API routes below need the owner: backtests are costly to run and exports dump the raw tables.
 export async function middleware(req: NextRequest) {
   if (await isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) return NextResponse.next();
-  if (req.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const url = req.nextUrl.clone();
-  url.pathname = "/login";
-  url.search = `?next=${encodeURIComponent(req.nextUrl.pathname + req.nextUrl.search)}`;
-  return NextResponse.redirect(url);
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 }
 
 export const config = {
-  // Cron routes check CRON_SECRET themselves. /strategies is public (read-only for visitors; its server actions
-  // check the session in actions.ts). These are prefix matches: a new route whose path starts with one of
-  // them (e.g. "api/tickets") would skip the login check, so keep new route names distinct.
-  matcher: ["/((?!login|api/auth|api/tick|api/cron|strategies|_next|favicon.ico).*)"],
+  matcher: ["/api/backtest", "/api/export/:path*"],
 };

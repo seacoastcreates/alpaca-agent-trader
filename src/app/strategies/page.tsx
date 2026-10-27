@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ReadOnlyNote } from "@/components/ReadOnlyNote";
 import { StrategyCard } from "@/components/StrategyCard";
 import { isOwner } from "@/lib/auth";
 import { db, positions } from "@/lib/db";
@@ -15,12 +15,7 @@ export default async function StrategiesPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-lg font-semibold">Strategies</h1>
-        {!owner && (
-          <p className="mt-2 rounded-md border border-line bg-panel px-3 py-2 text-sm text-ink-2">
-            Viewing read-only. <Link href="/login?next=/strategies" className="text-accent hover:underline">Sign in</Link> to
-            change strategies.
-          </p>
-        )}
+        {!owner && <div className="mt-2"><ReadOnlyNote next="/strategies">Viewing read-only.</ReadOnlyNote></div>}
         <p className="mt-1 text-sm text-ink-2">
           Strategies run side by side on daily bars; the intraday rules also read today&apos;s 5 or 15 minute candles. A symbol belongs to one strategy at a time. Exits keep running
           for a disabled strategy&apos;s open positions, so nothing is left unmanaged. Bearish rules buy puts, so they
