@@ -1,29 +1,22 @@
-"use client";
+import { safeNext } from "@/lib/auth";
 
-import { useState } from "react";
+const ERRORS: Record<string, string> = {
+  not_allowed: "That Google account isn't allowed to sign in.",
+  expired: "The sign-in expired. Try again.",
+  google: "Google sign-in failed. Try again.",
+};
 
-export default function LoginPage() {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const res = await fetch("/api/login", { method: "POST", body: JSON.stringify({ password }) });
-    // Only same-site paths, so a crafted link can't bounce a signed-in owner elsewhere.
-    const next = new URLSearchParams(window.location.search).get("next") ?? "/";
-    if (res.ok) window.location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/";
-    else setError((await res.json()).error ?? "Login failed");
-  }
-
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
+  const { next, error } = await searchParams;
   return (
-    <form onSubmit={submit} className="mx-auto mt-16 max-w-sm space-y-3 rounded-lg border border-line bg-panel p-6">
+    <div className="mx-auto mt-16 max-w-sm space-y-3 rounded-lg border border-line bg-panel p-6">
       <h1 className="font-semibold">Sign in</h1>
-      <input
-        type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
-        className="block w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" placeholder="Password"
-      />
-      {error && <p className="text-sm text-bad">{error}</p>}
-      <button className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white dark:text-black">Sign in</button>
-    </form>
+      <p className="text-sm text-ink-2">Only the owner can sign in. The Strategies page is open to everyone.</p>
+      {error && <p className="text-sm text-bad">{ERRORS[error] ?? "Sign-in failed."}</p>}
+      <a
+        href={`/api/auth/google?next=${encodeURIComponent(safeNext(next))}`}
+        className="block w-full rounded-md bg-accent px-3 py-2 text-center text-sm font-medium text-white dark:text-black"
+      >Sign in with Google</a>
+    </div>
   );
 }

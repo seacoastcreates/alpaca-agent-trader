@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { MadeBy } from "@/components/MadeBy";
+import { isOwner } from "@/lib/auth";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -21,7 +22,8 @@ const NAV = [
   ["/settings", "Settings"],
 ] as const;
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const owner = await isOwner();
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}>
@@ -35,6 +37,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 <Link key={href} href={href} className="hover:text-ink">{label}</Link>
               ))}
             </nav>
+            <div className="ml-auto text-sm text-ink-2">
+              {owner ? (
+                <form action="/api/auth/logout" method="post">
+                  <button className="hover:text-ink">Sign out</button>
+                </form>
+              ) : (
+                <Link href="/login" className="hover:text-ink">Sign in</Link>
+              )}
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
