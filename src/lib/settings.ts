@@ -39,7 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   instrument: "shares",
   options: {
     premiumPct: 5, weekly: true, weeklyMinDte: 1, weeklyCloseAtDte: 0, minDte: 30, maxDte: 60, targetDte: 45, minDelta: 0.55, maxDelta: 0.8, targetDelta: 0.65,
-    minOpenInterest: 100, maxSpreadPct: 5, maxSpreadAbs: 0.1, premiumStopPct: 50, premiumTargetPct: 100, closeAtDte: 10, entryTimeoutMin: 10,
+    minOpenInterest: 100, maxSpreadPct: 5, maxSpreadAbs: 0.15, premiumStopPct: 50, premiumTargetPct: 100, closeAtDte: 10, entryTimeoutMin: 10,
   },
   watchlist: [
     "SPY", "QQQ", "IWM", "XLF", "XLE", "XLV", "XLK",
