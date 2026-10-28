@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { MadeBy } from "@/components/MadeBy";
 import { isOwner } from "@/lib/auth";
 import "./globals.css";
@@ -29,8 +30,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased font-sans`}>
         <header className="border-b border-line bg-panel">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-            <Link href="/" className="font-semibold tracking-tight">
-              Rulebook Trader <span className="ml-1 rounded bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-warn">PAPER</span>
+            <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+              <Logo />
+              Rulebook Trader <span className="rounded bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-warn">PAPER</span>
             </Link>
             <nav className="flex flex-wrap gap-4 text-sm text-ink-2">
               {NAV.map(([href, label]) => (
