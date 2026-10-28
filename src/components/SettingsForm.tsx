@@ -44,6 +44,18 @@ const RISK_FIELDS: [keyof Settings["risk"], string, string][] = [
   ["entryEndET", "Entry window end (ET)", "time"],
 ];
 
+type SentimentField = Exclude<keyof Settings["sentiment"], "enabled" | "requireVwap" | "model">;
+const SENTIMENT_FIELDS: [SentimentField, string, string][] = [
+  ["entryThreshold", "Open a trade at score (0-1)", "number"],
+  ["exitThreshold", "Close when score falls inside", "number"],
+  ["halfLifeMin", "Headline weight halves every (min)", "number"],
+  ["maxTradesPerDay", "Max trades per day", "number"],
+  ["cooldownMin", "Wait after a trade (min)", "number"],
+  ["entryStartET", "Entries from (ET)", "time"],
+  ["entryEndET", "Entries until (ET)", "time"],
+  ["closeByET", "Flat by (ET)", "time"],
+];
+
 type UniverseStatus = { count: number; etfs: number; computedAt: string; preview: string[] } | null;
 
 export function SettingsForm({ initial, universe, canEdit }: { initial: Settings; universe: UniverseStatus; canEdit: boolean }) {
@@ -225,6 +237,44 @@ export function SettingsForm({ initial, universe, canEdit }: { initial: Settings
             <input type="number" className={input} value={s.agent.maxReviewsPerDay}
               onChange={(e) => setS({ ...s, agent: { ...s.agent, maxReviewsPerDay: Number(e.target.value) } })} />
           </label>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-panel p-4">
+        <h2 className="text-sm font-semibold">News sentiment reader (shadow mode)</h2>
+        <p className="mt-1 text-xs text-muted">
+          Scores market-moving headlines with Claude and logs the SPY option trades it would take. It never places an
+          order. Contracts are picked with the option settings above.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={s.sentiment.enabled}
+              onChange={(e) => setS({ ...s, sentiment: { ...s.sentiment, enabled: e.target.checked } })} />
+            Reader enabled
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--accent)]" checked={s.sentiment.requireVwap}
+              onChange={(e) => setS({ ...s, sentiment: { ...s.sentiment, requireVwap: e.target.checked } })} />
+            Require SPY on the right side of VWAP
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-muted">Model</span>
+            <select className={input} value={s.sentiment.model}
+              onChange={(e) => setS({ ...s, sentiment: { ...s.sentiment, model: e.target.value } })}>
+              <option value="claude-haiku-5-5">Claude Haiku 5.5 (cheapest)</option>
+              <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+              <option value="claude-opus-5-5">Claude Opus 5.5</option>
+            </select>
+          </label>
+          {SENTIMENT_FIELDS.map(([k, label, type]) => (
+            <label key={k} className="text-sm">
+              <span className="text-xs text-muted">{label}</span>
+              <input
+                type={type} step={type === "number" ? "any" : undefined} className={input} value={String(s.sentiment[k])}
+                onChange={(e) => setS({ ...s, sentiment: { ...s.sentiment, [k]: type === "number" ? Number(e.target.value) : e.target.value } })}
+              />
+            </label>
+          ))}
         </div>
       </section>
 

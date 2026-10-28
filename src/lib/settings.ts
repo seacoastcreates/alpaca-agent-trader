@@ -23,7 +23,7 @@ export type Settings = {
     dailyLossLimitPct: number; // halt entries once the day is down this much
     minPrice: number;
     cooldownDays: number; // calendar days before re-entering a symbol after an exit
-    entryStartET: string; // "HH:MM" - no entries before (avoid the open)
+    entryStartET: string; // "HH:MM" - no entries before
     entryEndET: string; // "HH:MM" - no entries after
   };
   agent: {
@@ -31,6 +31,20 @@ export type Settings = {
     mode: "veto" | "advisory"; // veto blocks the trade; advisory only logs the opinion
     model: string;
     maxReviewsPerDay: number;
+  };
+  // News sentiment reader for SPY options. Shadow mode only: it scores headlines and logs hypothetical trades.
+  sentiment: {
+    enabled: boolean;
+    model: string;
+    halfLifeMin: number; // a headline's weight halves every this many minutes
+    entryThreshold: number; // |score| (0-1) that opens a trade
+    exitThreshold: number; // close once the score falls back inside this
+    requireVwap: boolean; // bullish needs SPY above session VWAP, bearish below
+    maxTradesPerDay: number;
+    cooldownMin: number; // wait after a trade closes before the next
+    entryStartET: string;
+    entryEndET: string;
+    closeByET: string; // flat by this time (no overnight holds)
   };
 };
 
@@ -57,7 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
     dailyLossLimitPct: 2,
     minPrice: 5,
     cooldownDays: 3,
-    entryStartET: "10:00",
+    entryStartET: "09:30",
     entryEndET: "15:45",
   },
   agent: {
@@ -65,6 +79,19 @@ export const DEFAULT_SETTINGS: Settings = {
     mode: "veto",
     model: "claude-haiku-5-5",
     maxReviewsPerDay: 25,
+  },
+  sentiment: {
+    enabled: true,
+    model: "claude-haiku-5-5",
+    halfLifeMin: 90,
+    entryThreshold: 0.4,
+    exitThreshold: 0.1,
+    requireVwap: true,
+    maxTradesPerDay: 3,
+    cooldownMin: 30,
+    entryStartET: "09:45",
+    entryEndET: "15:30",
+    closeByET: "15:50",
   },
 };
 
@@ -80,6 +107,7 @@ export async function getSettings(): Promise<Settings> {
     options: { ...DEFAULT_SETTINGS.options, ...d.options },
     risk: { ...DEFAULT_SETTINGS.risk, ...d.risk },
     agent: { ...DEFAULT_SETTINGS.agent, ...d.agent },
+    sentiment: { ...DEFAULT_SETTINGS.sentiment, ...d.sentiment },
   };
 }
 

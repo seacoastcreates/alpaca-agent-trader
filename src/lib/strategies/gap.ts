@@ -1,6 +1,6 @@
 import { round } from "../indicators";
 import { levelBracket, priorClose } from "./session";
-import { num, type ExitSignal, type Strategy } from "./types";
+import { num, type Strategy } from "./types";
 
 // Gap and go / gap fade, judged on the session's first candle. Calls when the first candle is green: after a gap up
 // (go) or a gap down (fade). Puts are the mirror image. The stop is the first candle's far end; a fade targets the
@@ -17,11 +17,10 @@ function gap(bullish: boolean): Strategy {
         `${bullish ? "Buy calls" : "Buy puts"} after the stock gaps ${gapDir} ${p.minGapPct}-${p.maxGapPct}% from the prior close and ` +
         `the first ${num(p, "intervalMin") >= 15 ? 15 : 5}-minute candle closes ${bullish ? "green" : "red"} ` +
         `(${fade ? "fading the gap" : "following the gap"}). Stop at the first candle's ${bullish ? "low" : "high"} (skipped if ` +
-        `more than ${p.maxRiskPct}% away), target ${fade ? "the prior close (gap fill)" : `${p.targetR}x the risk`}, or exit after ` +
-        `${p.maxHoldDays} trading day(s).`
+        `more than ${p.maxRiskPct}% away), target ${fade ? "the prior close (gap fill)" : `${p.targetR}x the risk`}.`
       );
     },
-    defaultParams: { fade: false, intervalMin: 5, minGapPct: 2, maxGapPct: 10, maxRiskPct: 3, targetR: 2, maxHoldDays: 1 },
+    defaultParams: { fade: false, intervalMin: 5, minGapPct: 2, maxGapPct: 10, maxRiskPct: 3, targetR: 2 },
     paramMeta: {
       fade: { label: "Fade the gap instead of following it" },
       intervalMin: { label: "First candle (5 or 15 min)", min: 5, max: 15, step: 10 },
@@ -29,7 +28,6 @@ function gap(bullish: boolean): Strategy {
       maxGapPct: { label: "Max gap %", min: 1, max: 50, step: 0.5 },
       maxRiskPct: { label: "Max risk (% of price)", min: 0.2, max: 10, step: 0.1 },
       targetR: { label: "Target (x risk, gap and go)", min: 0.5, max: 10, step: 0.5 },
-      maxHoldDays: { label: "Max hold (trading days)", min: 1, max: 10, step: 1 },
     },
     intervalMin: (p) => (num(p, "intervalMin") >= 15 ? 15 : 5),
     entryFromOpen: true,
@@ -60,8 +58,7 @@ function gap(bullish: boolean): Strategy {
       const legs = levelBracket(price, ind?.stopLevel, num(p, "maxRiskPct"), num(p, "targetR"), bullish);
       return p.fade && ind?.priorClose ? { ...legs, takeProfitPrice: ind.priorClose } : legs;
     },
-    exit: ({ bars, params: p, daysHeld }): ExitSignal | null =>
-      daysHeld >= num(p, "maxHoldDays") ? { reason: "time_exit", indicators: { price: bars.at(-1)!.c, daysHeld } } : null,
+    exit: () => null,
   };
 }
 

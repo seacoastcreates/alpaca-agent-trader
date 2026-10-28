@@ -18,6 +18,7 @@ const NAV = [
   ["/", "Dashboard"],
   ["/strategies", "Strategies"],
   ["/performance", "Performance"],
+  ["/sentiment", "Sentiment"],
   ["/activity", "Activity"],
   ["/journal", "Journal"],
   ["/settings", "Settings"],

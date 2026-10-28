@@ -3,9 +3,9 @@
 Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk reviewer.
 
 - **Strategies** (daily bars, run side by side, each toggleable with editable params):
-  - *Trend + pullback*: above 50-day SMA, RSI(14) < 35. +6% target / -3% stop / 10-day max hold / exit below trend.
-  - *RSI-2 mean reversion*: above 200-day SMA, RSI(2) < 10. Exit above 5-day SMA / 7-day max / -5% stop.
-  - *Momentum breakout*: new 20-day high on 1.5x projected volume. 8% trailing stop / -7% hard stop / 30-day max.
+  - *Trend + pullback*: above 50-day SMA, RSI(14) < 35. +6% target / -3% stop / exit below trend.
+  - *RSI-2 mean reversion*: above 200-day SMA, RSI(2) < 10. Exit above 5-day SMA / -5% stop.
+  - *Momentum breakout*: new 20-day high on 1.5x projected volume. 8% trailing stop / -7% hard stop.
 - **Universe**: the top 500 NYSE + NASDAQ stocks and the top 50 ETFs by 30-day average dollar volume,
   re-ranked weekly before the open, plus a pinned list that is always scanned. Single-stock ETFs (e.g.
   "Daily TSLA Bull 2X") are excluded: a stock ticker in the name plus a leveraged/inverse/income cue.
@@ -25,6 +25,13 @@ Rules-based swing trading on an **Alpaca paper account**, with Claude as a risk 
 - **Claude reviewer** (Haiku 5.5 by default): every new entry candidate gets one review per day against recent
   headlines and price action. In *veto* mode it can block a trade; in *advisory* mode it only records an opinion.
   If a review fails in veto mode, the trade is skipped (fail closed). About $0.0005 per review.
+- **News sentiment reader** (shadow mode, **Sentiment** page): every tick, Claude scores new Benzinga headlines tagged
+  with index ETFs or the largest stocks (or untagged macro news) for broad-market impact, relevance and kind (new
+  information counts fully, opinion at 30%, recaps and repeats not at all). Scores fade with a 90-minute half-life and
+  sum into one -1..+1 market score. Past +/-0.4, with SPY on the same side of VWAP, it logs a hypothetical SPY weekly
+  call or put (same contract filters, entry at the bot's limit, exit at the bid) and closes it when sentiment fades,
+  on the premium stop/target, or at 15:50 ET. It never places orders. Tables: `news_scores`, `sentiment_snapshots`,
+  `sentiment_trades` (`src/lib/sentiment.ts`).
 - **Journal**: after each close Claude writes a short daily entry from the day's signals, fills and scoreboard.
 - Entries go in as **bracket/OTO orders** (GTC), so stops live at Alpaca even if a tick is missed.
 - The app refuses to start trading if `ALPACA_TRADING_URL` isn't the paper API.

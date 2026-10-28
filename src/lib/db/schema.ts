@@ -196,3 +196,66 @@ export const equitySnapshots = pgTable("equity_snapshots", {
   equity: doublePrecision("equity").notNull(),
   lastEquity: doublePrecision("last_equity"),
 });
+
+// ---- Sentiment reader (shadow mode: scores the news and logs the SPY option trades it would take, no orders) ----
+
+// One row per Benzinga headline the reader has seen, with Claude's read of what it means for the broad market.
+export const newsScores = pgTable(
+  "news_scores",
+  {
+    id: integer("id").primaryKey(), // Alpaca news id
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    headline: text("headline").notNull(),
+    summary: text("summary"),
+    symbols: jsonb("symbols").$type<string[]>().notNull(),
+    url: text("url"),
+    impact: doublePrecision("impact").notNull(), // -1 (bearish for the S&P 500) .. +1 (bullish)
+    confidence: doublePrecision("confidence").notNull(), // 0..1
+    relevance: doublePrecision("relevance").notNull(), // 0..1, how much it matters to the whole index
+    kind: text("kind").notNull(), // new_information | opinion | recap | repeat | noise | unscored
+    category: text("category").notNull(),
+    reason: text("reason"),
+    model: text("model"),
+    scoredAt: timestamp("scored_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("news_scores_published_idx").on(t.publishedAt)],
+);
+
+// The aggregate sentiment score on every market-hours tick, next to SPY, for the chart.
+export const sentimentSnapshots = pgTable("sentiment_snapshots", {
+  t: timestamp("t", { withTimezone: true }).primaryKey().defaultNow(),
+  score: doublePrecision("score").notNull(), // -1..1
+  headlines: integer("headlines").notNull(), // headlines contributing (non-zero weight) in the window
+  spy: doublePrecision("spy"),
+  vwap: doublePrecision("vwap"),
+  note: text("note"), // what the reader decided this tick
+});
+
+export type SentimentDriver = { id: number; headline: string; contribution: number };
+
+// Hypothetical SPY option trades: entry at the bot's entry limit (mid, capped at the ask), exit at the bid.
+export const sentimentTrades = pgTable("sentiment_trades", {
+  id: serial("id").primaryKey(),
+  status: text("status").notNull(), // open | closed | skipped (no contract passed the filters)
+  direction: text("direction").notNull(), // bullish (call) | bearish (put)
+  skipReason: text("skip_reason"),
+  openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+  entryScore: doublePrecision("entry_score").notNull(),
+  entrySpy: doublePrecision("entry_spy").notNull(),
+  drivers: jsonb("drivers").$type<SentimentDriver[]>().notNull().default([]),
+  contract: text("contract"),
+  strike: doublePrecision("strike"),
+  expiration: text("expiration"),
+  entryBid: doublePrecision("entry_bid"),
+  entryAsk: doublePrecision("entry_ask"),
+  entryPrice: doublePrecision("entry_price"),
+  qty: integer("qty"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  exitReason: text("exit_reason"), // sentiment_faded | premium_stop | premium_target | end_of_day
+  exitScore: doublePrecision("exit_score"),
+  exitSpy: doublePrecision("exit_spy"),
+  exitPrice: doublePrecision("exit_price"),
+  pnl: doublePrecision("pnl"),
+  pnlPct: doublePrecision("pnl_pct"),
+  spyMovePct: doublePrecision("spy_move_pct"), // signed in the trade's favour
+});

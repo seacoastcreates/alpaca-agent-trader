@@ -11,6 +11,7 @@ import { STRATEGIES, STRATEGY_BY_ID, type Params, type Strategy } from "./strate
 import { etDay, etMinutes, hhmmToMinutes } from "./time";
 import { sectorOf } from "./sectors";
 import { scanList } from "./universe";
+import { sentimentTick } from "./sentiment";
 
 // Each review takes a few seconds; leave the rest for the next tick so a run stays well under the time limit.
 const MAX_REVIEWS_PER_TICK = 4;
@@ -103,7 +104,9 @@ async function syncPositions(log: string[], settings: Settings) {
         if (!open.length) {
           // An exit order that got rejected/cancelled leaves us stuck in "closing"; hand it back to the exit rules,
           // which re-submit at a fresh price if the exit condition still holds.
-          await db.update(positions).set({ state: "open", exitReason: null }).where(eq(positions.symbol, pos.symbol));
+          // A manual close stays requested, so the exits below re-submit it at a fresh price.
+          const manual = pos.exitReason === "manual_close";
+          await db.update(positions).set({ state: "open", exitReason: manual ? pos.exitReason : null }).where(eq(positions.symbol, pos.symbol));
           log.push(`${sym} exit order did not complete; reopened`);
         } else if (isOption(pos) && pos.exitSignalAt && Date.now() - pos.exitSignalAt.getTime() > 2 * 60_000) {
           // Limit sell at the bid hasn't filled: cancel so the next tick re-prices it.
@@ -189,9 +192,16 @@ export async function tick(trigger: string, opts: { dryRun?: boolean } = {}): Pr
     result.runId = run.id;
   }
 
+  // The sentiment reader (shadow mode, no orders) runs alongside the strategies; its failures never stop the tick.
+  const sentiment = dryRun
+    ? Promise.resolve()
+    : getSettings()
+        .then((s) => sentimentTick(s, result.log))
+        .catch((err) => { result.log.push(`sentiment failed: ${String(err instanceof Error ? err.message : err).slice(0, 300)}`); });
   try {
     await runTick(result, dryRun);
   } catch (err) {
+    await sentiment;
     result.status = "error";
     result.log.push(String(err instanceof Error ? err.message : err));
     if (result.runId) {
@@ -203,6 +213,7 @@ export async function tick(trigger: string, opts: { dryRun?: boolean } = {}): Pr
     throw err;
   }
 
+  await sentiment;
   if (result.runId) {
     await db
       .update(runs)
@@ -276,8 +287,9 @@ async function runTick(result: TickResult, dryRun: boolean) {
 
     // Options have no stop orders at the broker, so their protective exits are checked here every tick.
     // Underlying levels flip for bearish (put) trades: the stop is above the entry, the target below.
-    let exit: ExitSignal | null = null;
-    if (opt) {
+    let exit: ExitSignal | null =
+      pos.exitReason === "manual_close" ? { reason: "manual_close", indicators: { price, ...(bid ? { bid } : {}) } } : null;
+    if (opt && !exit) {
       const o = settings.options;
       const dte = pos.expiration ? daysUntil(pos.expiration) : Infinity;
       // Contracts bought a week or less from expiry are weeklies, whatever the current setting.
@@ -560,6 +572,34 @@ async function runTick(result: TickResult, dryRun: boolean) {
       log.push(`order ${c.symbol} failed: ${err}`);
     }
   }
+}
+
+/**
+ * Close one bot-owned position now (the dashboard's Close button). Shares sell at market; options sell with a limit at
+ * the bid, re-priced every couple of minutes until filled, like the bot's own exits. A pending entry is just cancelled.
+ */
+export async function closeOne(symbol: string): Promise<string> {
+  const pos = await db.query.positions.findFirst({ where: eq(positions.symbol, symbol) });
+  if (!pos) throw new Error(`${symbol} is not a bot position`);
+  const clock = await alpaca.getClock();
+  if (!clock.is_open) throw new Error("The market is closed; positions can be closed 9:30-16:00 ET.");
+  const sym = orderSymbol(pos);
+  await closePosition(sym); // cancels the bracket legs, a pending entry, or an earlier exit order
+  if (pos.state === "pending") return `cancelled the ${sym} entry order`;
+  const livePos = (await alpaca.getPositions()).find((p) => p.symbol === sym);
+  if (!livePos) return `${sym} has no open shares or contracts`;
+  const bid = isOption(pos) ? (await alpaca.getOptionSnapshots([sym]))[sym]?.latestQuote?.bp : undefined;
+  const limit = bid ? optionTick(bid, "down") : undefined;
+  const order = await alpaca.submitOrder({
+    symbol: sym, qty: livePos.qty, side: "sell", time_in_force: "day", client_order_id: clientId("x", pos.strategyId, pos.symbol),
+    ...(limit ? { type: "limit", limit_price: limit.toFixed(2) } : { type: "market" }),
+  });
+  await db.update(positions).set({
+    state: "closing", exitReason: "manual_close", exitSignalAt: new Date(),
+    exitSignalPrice: bid ?? Number(livePos.current_price), exitOrderId: order.id,
+    exitIndicators: { price: Number(livePos.current_price), ...(bid ? { bid } : {}) },
+  }).where(eq(positions.symbol, pos.symbol));
+  return limit ? `selling ${sym} x${livePos.qty} at $${limit.toFixed(2)} (the bid)` : `selling ${sym} x${livePos.qty} at market`;
 }
 
 /** Close every bot-owned position now (manual "flatten" button). */

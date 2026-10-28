@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db, strategies } from "@/lib/db";
-import { flattenAll, tick } from "@/lib/engine";
+import { closeOne, flattenAll, tick } from "@/lib/engine";
 import { runJournal } from "@/lib/journal";
 import { isOwner } from "@/lib/auth";
 import { getSettings, saveSettings } from "@/lib/settings";
@@ -45,6 +45,17 @@ export async function setKillSwitch(on: boolean) {
   const s = await getSettings();
   await saveSettings({ ...s, killSwitch: on });
   revalidatePath("/", "layout");
+}
+
+export async function closePositionNow(symbol: string) {
+  await requireOwner();
+  try {
+    const message = await closeOne(symbol);
+    revalidatePath("/", "layout");
+    return { ok: true as const, message };
+  } catch (e) {
+    return { ok: false as const, error: errMsg(e) };
+  }
 }
 
 export async function flatten() {
@@ -131,6 +142,19 @@ const SettingsSchema = z.object({
     mode: z.enum(["veto", "advisory"]),
     model: z.string().min(1),
     maxReviewsPerDay: z.number().int().min(0).max(500),
+  }),
+  sentiment: z.object({
+    enabled: z.boolean(),
+    model: z.string().min(1),
+    halfLifeMin: z.number().min(5).max(1440),
+    entryThreshold: z.number().min(0.05).max(1),
+    exitThreshold: z.number().min(0).max(1),
+    requireVwap: z.boolean(),
+    maxTradesPerDay: z.number().int().min(0).max(20),
+    cooldownMin: z.number().int().min(0).max(390),
+    entryStartET: z.string().regex(/^\d{2}:\d{2}$/),
+    entryEndET: z.string().regex(/^\d{2}:\d{2}$/),
+    closeByET: z.string().regex(/^\d{2}:\d{2}$/),
   }),
 });
 

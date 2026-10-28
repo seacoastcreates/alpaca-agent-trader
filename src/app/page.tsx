@@ -1,5 +1,6 @@
 import { desc } from "drizzle-orm";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { ClosePositionButton } from "@/components/ClosePositionButton";
 import { Controls } from "@/components/Controls";
 import { ReadOnlyNote } from "@/components/ReadOnlyNote";
 import { EquityChart } from "@/components/EquityChart";
@@ -78,7 +79,7 @@ export default async function Dashboard() {
 
       <Card title="Bot positions">
         <Table
-          head={["Symbol", "Strategy", "State", "Qty", "Entry", "Last", "P&L", "Stop / target"]}
+          head={["Symbol", "Strategy", "State", "Qty", "Entry", "Last", "P&L", "Stop / target", ...(owner ? [""] : [])]}
           empty={ours.length ? undefined : "No positions yet. Entries happen when a rule fires inside the entry window."}
         >
           {ours.map((p) => {
@@ -108,6 +109,13 @@ export default async function Dashboard() {
                   {p.stopPrice ? usd(p.stopPrice) : "–"} / {p.takeProfitPrice ? usd(p.takeProfitPrice) : "trail"}
                   {p.contract && <div className="text-xs text-muted">on {p.symbol}</div>}
                 </td>
+                {owner && (
+                  <td className={`${td} whitespace-nowrap`}>
+                    {p.state === "closing" && p.exitReason === "manual_close"
+                      ? <span className="text-xs text-muted">Selling…</span>
+                      : <ClosePositionButton symbol={p.symbol} label={p.contract ? `${p.symbol} $${p.strike} ${p.instrument}` : p.symbol} pending={p.state === "pending"} />}
+                  </td>
+                )}
               </tr>
             );
           })}

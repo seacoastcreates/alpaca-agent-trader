@@ -292,9 +292,25 @@ export async function getOptionBars(contract: string, start: string, end: string
   return out;
 }
 
-export type NewsItem = { headline: string; summary: string; created_at: string; source: string; url?: string };
+export type NewsItem = { id?: number; headline: string; summary: string; created_at: string; source: string; url?: string; symbols?: string[] };
 export async function getNews(symbol: string, sinceDays = 4, limit = 10): Promise<NewsItem[]> {
   const start = new Date(Date.now() - sinceDays * 86400_000).toISOString();
   const res = await data<{ news: NewsItem[] }>(`/v1beta1/news?symbols=${symbol}&limit=${limit}&start=${start}`);
   return res.news ?? [];
+}
+
+export type MarketNews = NewsItem & { id: number; symbols: string[] };
+/** Every headline published since `since`, newest first, across all symbols (the market-wide feed). */
+export async function getMarketNews(since: Date, maxPages = 10): Promise<MarketNews[]> {
+  const out: MarketNews[] = [];
+  let pageToken: string | undefined;
+  for (let i = 0; i < maxPages; i++) {
+    const q = new URLSearchParams({ start: since.toISOString(), limit: "50", sort: "desc" });
+    if (pageToken) q.set("page_token", pageToken);
+    const res = await data<{ news: MarketNews[]; next_page_token: string | null }>(`/v1beta1/news?${q}`);
+    out.push(...(res.news ?? []));
+    pageToken = res.next_page_token ?? undefined;
+    if (!pageToken) break;
+  }
+  return out;
 }

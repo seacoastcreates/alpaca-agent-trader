@@ -1,6 +1,6 @@
 import { round } from "../indicators";
 import { avgVolume, levelBracket } from "./session";
-import { num, type ExitSignal, type Strategy } from "./types";
+import { num, type Strategy } from "./types";
 
 // Opening range breakout on 5-minute candles: the first rangeMin minutes set the range, the first candle to close
 // beyond it is the signal. The stop is the other side of the range.
@@ -16,15 +16,14 @@ function orb(bullish: boolean): Strategy {
       `${bullish ? "Buy calls" : "Buy puts"} when a 5-minute candle closes ${bullish ? "above" : "below"} the ${side} of the first ` +
       `${p.rangeMin} minutes of trading, the first close beyond it today, on volume at least ${p.volMult}x today's average candle, ` +
       `within ${p.lastEntryMin} minutes of the open. Skipped when the range is wider than ${p.maxRiskPct}% of price. Stop at the ` +
-      `other side of the range, target ${p.targetR}x the risk, or exit after ${p.maxHoldDays} trading day(s).`,
-    defaultParams: { rangeMin: 15, volMult: 1.2, lastEntryMin: 120, maxRiskPct: 2, targetR: 2, maxHoldDays: 1 },
+      `other side of the range, target ${p.targetR}x the risk.`,
+    defaultParams: { rangeMin: 15, volMult: 1.2, lastEntryMin: 120, maxRiskPct: 2, targetR: 2 },
     paramMeta: {
       rangeMin: { label: "Opening range (minutes)", min: 5, max: 60, step: 5 },
       volMult: { label: "Volume multiple", min: 0, max: 5, step: 0.1 },
       lastEntryMin: { label: "Latest entry (minutes after open)", min: 10, max: 390, step: 5 },
       maxRiskPct: { label: "Max range (% of price)", min: 0.2, max: 10, step: 0.1 },
       targetR: { label: "Target (x risk)", min: 0.5, max: 10, step: 0.5 },
-      maxHoldDays: { label: "Max hold (trading days)", min: 1, max: 10, step: 1 },
     },
     intervalMin: () => CANDLE,
     entryFromOpen: true,
@@ -50,8 +49,7 @@ function orb(bullish: boolean): Strategy {
     },
     bracket: (price, p, ind) =>
       levelBracket(price, bullish ? ind?.rangeLow : ind?.rangeHigh, num(p, "maxRiskPct"), num(p, "targetR"), bullish),
-    exit: ({ bars, params: p, daysHeld }): ExitSignal | null =>
-      daysHeld >= num(p, "maxHoldDays") ? { reason: "time_exit", indicators: { price: bars.at(-1)!.c, daysHeld } } : null,
+    exit: () => null,
   };
 }
 

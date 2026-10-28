@@ -1,5 +1,5 @@
 import { round, type Bar } from "../indicators";
-import { num, type ExitSignal, type Params, type Signal, type Strategy } from "./types";
+import { num, type Params, type Signal, type Strategy } from "./types";
 
 const body = (b: Bar) => Math.abs(b.c - b.o);
 
@@ -37,7 +37,7 @@ function engulfing(bars: Bar[] | undefined, p: Params, bullish: boolean): Signal
   };
 }
 
-const params = { intervalMin: 5, trendBars: 3, bodyMult: 1.2, minBodyPct: 0.15, volBars: 12, volMult: 1.3, stopLossPct: 1, targetPct: 2, maxHoldDays: 2 };
+const params = { intervalMin: 5, trendBars: 3, bodyMult: 1.2, minBodyPct: 0.15, volBars: 12, volMult: 1.3, stopLossPct: 1, targetPct: 2 };
 const paramMeta = {
   intervalMin: { label: "Candle interval (5 or 15 min)", min: 5, max: 15, step: 10 },
   trendBars: { label: "Prior move (candles)", min: 1, max: 20, step: 1 },
@@ -47,16 +47,13 @@ const paramMeta = {
   volMult: { label: "Volume multiple", min: 0, max: 5, step: 0.1 },
   stopLossPct: { label: "Stock stop %", min: 0.2, max: 20, step: 0.1 },
   targetPct: { label: "Stock target %", min: 0.2, max: 50, step: 0.1 },
-  maxHoldDays: { label: "Max hold (trading days)", min: 1, max: 20, step: 1 },
 };
 const intervalMin = (p: Params) => (num(p, "intervalMin") >= 15 ? 15 : 5);
-const timeExit = ({ bars, params: p, daysHeld }: { bars: Bar[]; params: Params; daysHeld: number }): ExitSignal | null =>
-  daysHeld >= num(p, "maxHoldDays") ? { reason: "time_exit", indicators: { price: bars.at(-1)!.c, daysHeld } } : null;
 const rules = (side: string, p: Params) =>
   `On ${intervalMin(p)}-minute candles, ${side} when the last completed candle engulfs the one before it (body at least ` +
   `${p.bodyMult}x the prior body and ${p.minBodyPct}% of price) after a ${p.trendBars}-candle move the other way, on volume ` +
-  `at least ${p.volMult}x the ${p.volBars}-candle average. Today's regular session only. Exit at a ${p.stopLossPct}% stop or ` +
-  `${p.targetPct}% target on the stock, or after ${p.maxHoldDays} trading days.`;
+  `at least ${p.volMult}x the ${p.volBars}-candle average. Today's regular session only. Exit at a ${p.stopLossPct}% stop or a ` +
+  `${p.targetPct}% target on the stock.`;
 
 export const bullishEngulfing: Strategy = {
   id: "bullish_engulfing",
@@ -69,7 +66,7 @@ export const bullishEngulfing: Strategy = {
   defaultEnabled: false,
   entry: ({ intraday, params: p }) => engulfing(intraday, p, true),
   bracket: (price, p) => ({ stopPrice: price * (1 - num(p, "stopLossPct") / 100), takeProfitPrice: price * (1 + num(p, "targetPct") / 100) }),
-  exit: timeExit,
+  exit: () => null,
 };
 
 export const bearishEngulfing: Strategy = {
@@ -83,5 +80,5 @@ export const bearishEngulfing: Strategy = {
   defaultEnabled: false,
   entry: ({ intraday, params: p }) => engulfing(intraday, p, false),
   bracket: (price, p) => ({ stopPrice: price * (1 + num(p, "stopLossPct") / 100), takeProfitPrice: price * (1 - num(p, "targetPct") / 100) }),
-  exit: timeExit,
+  exit: () => null,
 };

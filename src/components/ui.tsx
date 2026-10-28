@@ -37,6 +37,8 @@ const BADGE: Record<string, string> = {
   ok: "bg-good/15 text-good",
   market_closed: "bg-ink-2/10 text-ink-2",
   running: "bg-warn/15 text-warn",
+  bullish: "bg-good/15 text-good",
+  bearish: "bg-bad/15 text-bad",
 };
 
 export function Badge({ children, kind }: { children: ReactNode; kind?: string }) {

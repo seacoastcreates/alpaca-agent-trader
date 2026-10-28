@@ -1,6 +1,6 @@
 import { priorAvgVolume, round } from "../indicators";
 import { levelBracket } from "./session";
-import { num, type ExitSignal, type Strategy } from "./types";
+import { num, type Strategy } from "./types";
 
 // Inside day: yesterday's range sat inside the day before's. Trade today's break of yesterday's high (calls) or low
 // (puts); the stop is the other side of yesterday's range.
@@ -13,13 +13,12 @@ function insideDay(bullish: boolean): Strategy {
       `When yesterday's high and low were inside the day before's range, ${bullish ? "buy" : "buy puts"} once today's price ` +
       `breaks ${bullish ? "above yesterday's high" : "below yesterday's low"} on volume projected at least ${p.volMult}x the ` +
       `20-day average. Stop at yesterday's ${bullish ? "low" : "high"} (skipped if more than ${p.maxRiskPct}% away), target ` +
-      `${p.targetR}x the risk, or exit after ${p.maxHoldDays} trading days.`,
-    defaultParams: { volMult: 1, maxRiskPct: 5, targetR: 2, maxHoldDays: 5 },
+      `${p.targetR}x the risk.`,
+    defaultParams: { volMult: 1, maxRiskPct: 5, targetR: 2 },
     paramMeta: {
       volMult: { label: "Volume multiple", min: 0, max: 5, step: 0.1 },
       maxRiskPct: { label: "Max risk (% of price)", min: 0.5, max: 20, step: 0.5 },
       targetR: { label: "Target (x risk)", min: 0.5, max: 10, step: 0.5 },
-      maxHoldDays: { label: "Max hold (trading days)", min: 1, max: 30, step: 1 },
     },
     defaultEnabled: false,
     entry({ bars, params: p, sessionFraction }) {
@@ -40,8 +39,7 @@ function insideDay(bullish: boolean): Strategy {
     },
     bracket: (price, p, ind) =>
       levelBracket(price, bullish ? ind?.insideLow : ind?.insideHigh, num(p, "maxRiskPct"), num(p, "targetR"), bullish),
-    exit: ({ bars, params: p, daysHeld }): ExitSignal | null =>
-      daysHeld >= num(p, "maxHoldDays") ? { reason: "time_exit", indicators: { price: bars.at(-1)!.c, daysHeld } } : null,
+    exit: () => null,
   };
 }
 
